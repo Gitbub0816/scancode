@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07101d">
+  <title>AsterHalo — Polar code prototype</title>
+  <meta name="description" content="Generate a custom circular particle code and download static SVG, PNG, or standalone animated HTML.">
+  <style>
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #e9f7fb; background: #070e19; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: radial-gradient(circle at 70% 16%, #18314a 0, #0c192b 28%, #070e19 63%); min-height: 100vh; }
+    header { max-width: 1260px; margin: auto; padding: 28px 32px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #ffffff1c; }
+    .brand { letter-spacing:.13em; font-size:15px; font-weight:800; color:#d7fbff; text-decoration:none; }
+    .brand span { color:#00f0ff; }
+    header nav { display:flex; gap:24px; font-size:13px; }
+    a { color:#a2dfe9; }
+    main { max-width:1260px; margin:auto; padding:64px 32px 80px; }
+    .eyebrow { color:#56dfea; letter-spacing:.16em; font-weight:800; text-transform:uppercase; font-size:11px; }
+    h1 { font-size:clamp(42px,6vw,78px); line-height:1.03; letter-spacing:-.055em; margin:16px 0; max-width:750px; }
+    h1 em { font-style:normal; background:linear-gradient(90deg,#61effb,#e38ad3); background-clip:text; color:transparent; }
+    .intro { color:#a7bacd; font-size:17px; max-width:600px; line-height:1.65; margin:0 0 40px; }
+    .workspace { display:grid; grid-template-columns:minmax(310px,440px) minmax(360px,1fr); gap:28px; align-items:stretch; }
+    .panel { background:#0e1c2fdd; border:1px solid #ffffff20; border-radius:22px; box-shadow:0 20px 60px #0005; }
+    .controls { padding:32px; }
+    h2 { margin:0 0 24px; font-size:19px; letter-spacing:-.02em; }
+    label { display:block; font-size:13px; font-weight:700; margin-bottom:9px; }
+    textarea, input { width:100%; border:1px solid #476078; border-radius:11px; background:#071220; color:#eef9ff; padding:13px 14px; font:inherit; outline:none; }
+    textarea:focus, input:focus { border-color:#42d9e8; box-shadow:0 0 0 3px #42d9e826; }
+    textarea { height:110px; resize:vertical; line-height:1.5; }
+    .hint { color:#91a8bc; font-size:12px; line-height:1.55; margin:9px 0 23px; }
+    .row { display:flex; gap:12px; align-items:center; }
+    .row > div { flex:1; }
+    button { cursor:pointer; border:0; font:inherit; }
+    .primary { background:linear-gradient(105deg,#00e2f2,#9cf4ff); color:#052334; border-radius:11px; font-weight:800; padding:14px 19px; width:100%; margin-top:25px; box-shadow:0 8px 24px #00e2f226; }
+    .primary:hover { filter:brightness(1.08); }
+    .secondary { color:#d9faff; background:#173049; border:1px solid #3d6c82; border-radius:10px; padding:12px 14px; }
+    .secondary:hover { background:#20405c; }
+    .switch { display:flex; align-items:center; gap:11px; margin-top:22px; color:#c3d4e0; font-size:13px; }
+    .switch input { width:auto; accent-color:#00e2f2; }
+    .downloads { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:28px; }
+    .downloads button { font-size:12px; }
+    .preview-panel { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:30px; min-height:560px; background:radial-gradient(circle,#1d3b51 0,#10263b 39%,#0b1728 69%); overflow:hidden; }
+    #preview { width:min(100%,510px)!important; height:auto!important; aspect-ratio:1; }
+    #preview img { border-radius:16px; }
+    .caption { color:#9cb7c7; font-size:12px; text-align:center; margin:18px 0 0; }
+    .status { min-height:20px; color:#ffb5bf; font-size:12px; margin-top:12px; }
+    .scanner { margin-top:28px; padding:24px; }
+    .camera-wrap { position:relative; width:min(100%,500px); margin:18px auto 0; }
+    .camera-wrap:has(video[hidden]) { display:none; }
+    #camera { width:100%; aspect-ratio:1; object-fit:cover; border-radius:15px; background:#050d17; }
+    .guide { position:absolute; inset:5%; border:2px solid #a0eef0aa; border-radius:50%; pointer-events:none; }
+    #scan-result { color:#b8ecf0; font-size:13px; overflow-wrap:anywhere; margin-top:12px; }
+    footer { border-top:1px solid #ffffff1c; padding:28px 32px; color:#91a8bc; font-size:12px; max-width:1260px; margin:auto; display:flex; justify-content:space-between; gap:15px; flex-wrap:wrap; }
+    code { color:#bffaff; }
+    @media (max-width:850px) { .workspace { grid-template-columns:1fr; } main { padding-top:45px; } .preview-panel { min-height:0; } }
+    @media (max-width:500px) { header, main, footer { padding-left:18px; padding-right:18px; } .controls { padding:23px; } .downloads { grid-template-columns:1fr; } header nav { gap:12px; } }
+  </style>
+</head>
+<body>
+  <header><a class="brand" href="/">ASTER<span>HALO</span></a><nav><a href="https://github.com/Gitbub0816/scancode">GitHub</a><a href="#api">API</a></nav></header>
+  <main>
+    <div class="eyebrow">Open source · Camera testing prototype</div>
+    <h1>A code with a <em>pulse.</em></h1>
+    <p class="intro">Turn a link or short text into a circular particle code. The fixed outer ring carries the data; the inner cloud moves independently. This custom format currently needs the AsterHalo decoder; stock camera apps do not recognize it.</p>
+    <div class="workspace">
+      <section class="panel controls" aria-label="Generator controls">
+        <h2>Create your code</h2>
+        <label for="payload">Link or text</label>
+        <textarea id="payload" maxlength="2048" spellcheck="false">https://citeory.com/study-buddies/invite/aJ3BnnB12345</textarea>
+        <p class="hint">The exact text is encoded, up to 214 UTF-8 bytes. This example link is fictional.</p>
+        <label for="mark">Center initials <span style="color:#91a8bc;font-weight:400">(optional, up to 3)</span></label>
+        <input id="mark" maxlength="3" value="A">
+        <label class="switch"><input type="checkbox" id="motion" checked> Show moving halo</label>
+        <button id="generate" class="primary" type="button">Generate AsterHalo</button>
+        <div class="status" id="status" role="status" aria-live="polite"></div>
+        <div class="downloads">
+          <button id="svg" class="secondary" type="button">Download SVG</button>
+          <button id="png" class="secondary" type="button">Download PNG</button>
+          <button id="html" class="secondary" type="button">Download live HTML</button>
+          <button id="copy" class="secondary" type="button">Copy payload</button>
+        </div>
+      </section>
+      <section class="panel preview-panel" aria-label="Code preview">
+        <div id="preview"></div>
+        <p class="caption">The encoded dots stay fixed while the vapor breathes behind them.</p>
+      </section>
+    </div>
+    <section class="panel scanner" aria-label="AsterHalo camera scanner">
+      <h2>Scan this circular code</h2>
+      <p class="hint">Use the AsterHalo camera on a second device and show the full circle. Camera access requires HTTPS or localhost. Finder detection is experimental.</p>
+      <button id="scan" class="secondary" type="button">Scan with AsterHalo camera</button>
+      <div class="camera-wrap"><video id="camera" autoplay muted playsinline hidden></video><div class="guide"></div></div>
+      <div id="scan-result" role="status" aria-live="polite"></div>
+    </section>
+    <p class="hint" id="api" style="margin-top:28px">API: <code>POST /api/v1/codes</code> with JSON <code>{"payload":"https://...","format":"svg","mode":"polar"}</code>. The code endpoint has a per-IP request limit.</p>
+  </main>
+  <footer><span>AsterHalo Polar is an experimental custom symbology. Aligned-image decoding is implemented; camera detection and stock-camera support are not.</span><span>MIT licensed SDK · No tracking in the generator</span></footer>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

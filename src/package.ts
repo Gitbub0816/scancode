@@ -1,0 +1,8 @@
+import { renderSvg, type RenderOptions } from './render.js';
+
+/** A self-contained, offline animated HTML file with a static QR payload. */
+export function packageAnimatedHtml(payload: string, options: RenderOptions = {}): string {
+  const size = options.size ?? 800;
+  const image = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(renderSvg(payload, options))}`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AsterHalo code</title><style>html,body{margin:0;min-height:100%;background:#07101d;display:grid;place-items:center}main{position:relative;width:min(100vw,${size}px);aspect-ratio:1}img,canvas{position:absolute;inset:0;width:100%;height:100%}canvas{pointer-events:none}</style></head><body><main role="img" aria-label="Experimental animated particle code"><img alt="" src="${image}"><canvas width="${size}" height="${size}"></canvas></main><script>const c=document.querySelector('canvas'),x=c.getContext('2d');const p=Array.from({length:2500},(_,i)=>({a:i*2.399963,r:i%7===0?.008+((i*73)%100)/100*.033:.32+((i*73)%100)/100*.1,t:(i*41)%3,s:1+((i*13)%25)/10}));function draw(ms){x.clearRect(0,0,c.width,c.height);let t=ms/1000;for(const q of p){let a=q.a+t*(.055+q.r*.06),r=q.r+Math.sin(a*9+t*.5+q.t)*(q.r<.1?.002:.006),X=c.width*(.5+Math.cos(a)*r),Y=c.height*(.5+Math.sin(a)*r);x.fillStyle=q.t===0?'#00f0ff99':q.t===1?'#ff007a77':'#2563eb99';x.beginPath();x.arc(X,Y,q.s,0,7);x.fill()}requestAnimationFrame(draw)}if(!matchMedia('(prefers-reduced-motion: reduce)').matches)requestAnimationFrame(draw)</script></body></html>`;
+}
