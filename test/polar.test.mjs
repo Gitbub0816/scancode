@@ -3,19 +3,20 @@ import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { encodePolar, decodePolarBits, decodePolarRgba, decodePolarFrame, renderPolarSvg } from '../dist/index.js';
 
-test('polar encoder carries exact Unicode and URL payloads in the static outer ring', () => {
+test('polar encoder carries exact Unicode and URL payloads in the one-row ring and cloud', () => {
   for (const payload of [
     'https://citeory.com/study-buddies/invite/aJ3BnnB12345',
     'こんにちは 🌌 AsterHalo'
   ]) {
     const code = encodePolar(payload);
     assert.equal(code.bits.length, 2040);
-    assert.ok(code.slots.every(slot => slot.ring));
+    assert.equal(code.slots.filter(slot => slot.ring).length, 512);
+    assert.equal(code.slots.filter(slot => !slot.ring).length, 1528);
     assert.equal(decodePolarBits(code.bits), payload);
   }
 });
 
-test('finder eyes locate and decode a full camera frame across rotations', async () => {
+test('triple-dot waypoints locate and decode a full camera frame across rotations', async () => {
   const payload = 'https://citeory.com/study-buddies/invite/aJ3BnnB12345';
   const svg = Buffer.from(renderPolarSvg(payload, { size: 800 }));
   for (const angle of [0, 15, 35, 90]) {

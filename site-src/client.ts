@@ -22,7 +22,7 @@ function generated() {
   } else {
     preview.innerHTML = renderPolarSvg(value, { size: 800, mark: mark.value.trim() });
   }
-  status.textContent = 'Polar data encoded in the fixed outer ring. The inner cloud moves freely; use the SDK scanner to read it.';
+  status.textContent = 'Encoded in one outer dotted track and the particle cloud. Use the AsterHalo scanner to read it.';
 }
 
 function report(error: unknown) { status.textContent = error instanceof Error ? error.message : 'Something went wrong'; }

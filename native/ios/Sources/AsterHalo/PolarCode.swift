@@ -8,6 +8,7 @@ public enum PolarCodeError: Error {
 public struct PolarSlot {
     public let x: Double
     public let y: Double
+    public let ring: Bool
 }
 
 private struct Random32 {
@@ -42,8 +43,8 @@ private struct GF256 {
     func power(_ n: Int) -> Int { exp[(n % 255 + 255) % 255] }
 }
 
-private struct Eye { let x: Double; let y: Double; let diameter: Double }
-private struct Blob { let x: Double; let y: Double; let width: Int; let height: Int }
+private struct MarkerDot { let x: Double; let y: Double; let area: Int }
+private struct Waypoint { let x: Double; let y: Double; let score: Double }
 
 public enum AsterHaloPolar {
     public static let payloadLimit = 214
@@ -52,26 +53,47 @@ public enum AsterHaloPolar {
     private static let gf = GF256()
 
     private static func makeSlots() -> [PolarSlot] {
-        var all: [PolarSlot] = []
-        let eyes = [(0.22, 0.22), (0.78, 0.22), (0.22, 0.78)]
-        for track in 0..<12 {
-            let radius = 0.338 + Double(track) * (0.12 / 11)
-            let count = Int(floor(2 * Double.pi * radius * 800 / 8.4))
-            for sector in 0..<count {
-                let angle = (Double(sector) + Double(track % 2) * 0.5) * 2 * Double.pi / Double(count) - Double.pi / 2
-                let displaced = radius + 0.0018 * sin(7 * angle + 0.4)
-                let x = 0.5 + displaced * cos(angle), y = 0.5 + displaced * sin(angle)
-                if eyes.contains(where: { hypot(x - $0.0, y - $0.1) < 0.052 }) { continue }
-                all.append(PolarSlot(x: x, y: y))
-            }
+        var inner: [PolarSlot] = [], cells: [String: [PolarSlot]] = [:]
+        var placement = Random32(0x716ca2b5)
+        while inner.count < bitCount - 512 {
+            let angle = placement.unit() * 2 * Double.pi
+            let radial = placement.unit()
+            let radius = sqrt(0.14 * 0.14 + radial * (0.305 * 0.305 - 0.14 * 0.14))
+            let x = 0.5 + radius * cos(angle), y = 0.5 + radius * sin(angle)
+            let gx = Int(floor(x / 0.007)), gy = Int(floor(y / 0.007))
+            var near = false
+            for dx in -1...1 { for dy in -1...1 {
+                for slot in cells["\(gx + dx),\(gy + dy)"] ?? [] {
+                    if hypot(x - slot.x, y - slot.y) < 0.0065 { near = true; break }
+                }
+            }}
+            if near { continue }
+            let slot = PolarSlot(x: x, y: y, ring: false)
+            inner.append(slot)
+            let key = "\(gx),\(gy)"
+            cells[key, default: []].append(slot)
         }
+        let gap = 0.06, m1 = 5 * Double.pi / 4, m2 = 7 * Double.pi / 4
+        let ranges = [(0.0, m1 - gap), (m1 + gap, m2 - gap), (m2 + gap, 2 * Double.pi)]
+        let total = ranges.reduce(0.0) { $0 + $1.1 - $1.0 }
+        var outer: [PolarSlot] = []
+        for i in 0..<512 {
+            var t = (Double(i) + 0.5) * total / 512
+            var angle = 0.0
+            for (a, b) in ranges {
+                if t < b - a { angle = a + t; break }
+                t -= b - a
+            }
+            outer.append(PolarSlot(x: 0.5 + 0.42 * cos(angle), y: 0.5 + 0.42 * sin(angle), ring: true))
+        }
+        var all = inner + outer
         var random = Random32(0xa57e2c91)
         for i in stride(from: all.count - 1, through: 1, by: -1) {
             let j = Int(random.next() % UInt32(i + 1))
             all.swapAt(i, j)
         }
-        precondition(all.count >= bitCount)
-        return Array(all.prefix(bitCount))
+        precondition(all.count == bitCount)
+        return all
     }
 
     private static func crc32(_ bytes: [UInt8]) -> UInt32 {
@@ -108,7 +130,7 @@ public enum AsterHaloPolar {
         guard utf8.count <= payloadLimit else { throw PolarCodeError.payloadTooLong }
         let crc = crc32(utf8)
         var data = [Int](repeating: 0, count: 223)
-        data[0] = 0x50; data[1] = 0x43; data[2] = 1
+        data[0] = 0x50; data[1] = 0x43; data[2] = 2
         data[3] = utf8.count >> 8; data[4] = utf8.count & 255
         data[5] = Int((crc >> 24) & 255); data[6] = Int((crc >> 16) & 255)
         data[7] = Int((crc >> 8) & 255); data[8] = Int(crc & 255)
@@ -188,7 +210,7 @@ public enum AsterHaloPolar {
         var mask = Random32(0x2d943fa7)
         for i in bits.indices { data[i >> 3] |= (Int(bits[i]) ^ Int(mask.next() & 1)) << (7 - (i & 7)) }
         try correct(&data)
-        guard data[0] == 0x50 && data[1] == 0x43 && data[2] == 1 else { throw PolarCodeError.invalidPayload }
+        guard data[0] == 0x50 && data[1] == 0x43 && data[2] == 2 else { throw PolarCodeError.invalidPayload }
         let length = (data[3] << 8) | data[4]
         guard length > 0 && length <= payloadLimit else { throw PolarCodeError.invalidPayload }
         let utf8 = data[9..<(9 + length)].map(UInt8.init)
@@ -217,132 +239,174 @@ public enum AsterHaloPolar {
         return (Int(bytes[p]) * 54 + Int(bytes[p + 1]) * 183 + Int(bytes[p + 2]) * 19) >> 8
     }
 
-    private static func findEyes(_ bytes: [UInt8], _ width: Int, _ height: Int) -> [Eye] {
-        let factor = max(1, (max(width, height) + 999) / 1000)
-        let w = width / factor, h = height / factor
-        var light = [UInt8](repeating: 0, count: w * h), gray = light, seen = light
-        for y in 0..<h { for x in 0..<w {
-            let value = luminance(bytes, width, min(width - 1, x * factor + factor / 2), min(height - 1, y * factor + factor / 2))
-            gray[y * w + x] = UInt8(value); light[y * w + x] = value > 160 ? 1 : 0
+    private static func markerDots(_ bytes: [UInt8], _ width: Int, _ height: Int) -> [MarkerDot] {
+        var light = [UInt8](repeating: 0, count: width * height)
+        for y in 0..<height { for x in 0..<width {
+            light[y * width + x] = luminance(bytes, width, x, y) > 205 ? 1 : 0
         }}
-        var blobs: [Blob] = [], queue = [Int](repeating: 0, count: w * h)
+        var seen = [UInt8](repeating: 0, count: light.count)
+        var queue = [Int](repeating: 0, count: light.count)
+        var dots: [MarkerDot] = []
         for start in light.indices {
             if light[start] == 0 || seen[start] != 0 { continue }
-            var head = 0, tail = 1, area = 0, minX = w, minY = h, maxX = 0, maxY = 0, sumX = 0, sumY = 0
+            var head = 0, tail = 1, area = 0, sumX = 0, sumY = 0
+            var minX = width, maxX = 0, minY = height, maxY = 0
             queue[0] = start; seen[start] = 1
             while head < tail {
                 let p = queue[head]; head += 1
-                let x = p % w, y = p / w
+                let x = p % width, y = p / width
                 area += 1; sumX += x; sumY += y
-                minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+                minX = min(minX, x); maxX = max(maxX, x)
+                minY = min(minY, y); maxY = max(maxY, y)
                 for oy in -1...1 { for ox in -1...1 {
                     if ox == 0 && oy == 0 { continue }
                     let nx = x + ox, ny = y + oy
-                    if nx < 0 || ny < 0 || nx >= w || ny >= h { continue }
-                    let next = ny * w + nx
-                    if light[next] != 0 && seen[next] == 0 { seen[next] = 1; queue[tail] = next; tail += 1 }
+                    if nx < 0 || ny < 0 || nx >= width || ny >= height { continue }
+                    let n = ny * width + nx
+                    if light[n] != 0 && seen[n] == 0 { seen[n] = 1; queue[tail] = n; tail += 1 }
                 }}
             }
             let bw = maxX - minX + 1, bh = maxY - minY + 1
-            let fill = Double(area) / Double(bw * bh), ratio = Double(bw) / Double(bh)
-            if bw < 12 || bh < 12 || Double(bw) > Double(min(w,h)) * 0.2 || Double(bh) > Double(min(w,h)) * 0.2 || ratio < 0.7 || ratio > 1.3 || fill < 0.12 || fill > 0.72 { continue }
-            let cx = Double(sumX) / Double(area), cy = Double(sumY) / Double(area)
-            if gray[Int(cy.rounded()) * w + Int(cx.rounded())] > 110 { continue }
-            blobs.append(Blob(x: cx, y: cy, width: bw, height: bh))
+            let ratio = Double(bw) / Double(bh)
+            if area < 11 || area > 130 || bw < 3 || bh < 3 || bw > 18 || bh > 18 || ratio < 0.55 || ratio > 1.8 { continue }
+            dots.append(MarkerDot(x: Double(sumX) / Double(area), y: Double(sumY) / Double(area), area: area))
         }
-        var eyes: [Eye] = []
-        for outer in blobs {
-            let paired = blobs.contains { inner in
-                let ratio = Double(outer.width) / Double(inner.width)
-                return ratio > 1.55 && ratio < 2.35 && hypot(inner.x - outer.x, inner.y - outer.y) < Double(outer.width) * 0.08
-            }
-            if !paired { continue }
-            let x = outer.x * Double(factor), y = outer.y * Double(factor)
-            if eyes.contains(where: { hypot($0.x - x, $0.y - y) < Double(outer.width * factor) * 0.3 }) { continue }
-            eyes.append(Eye(x: x, y: y, diameter: Double(outer.width * factor)))
-        }
-        return Array(eyes.sorted(by: { $0.diameter > $1.diameter }).prefix(30))
+        return Array(dots.sorted(by: { $0.area > $1.area }).prefix(180))
     }
 
-    private static func sample(_ bytes: [UInt8], _ width: Int, _ height: Int, _ a: Eye, _ b: Eye, _ c: Eye) throws -> String {
+    private static func waypointCandidates(_ dots: [MarkerDot]) -> [Waypoint] {
+        var found: [Waypoint] = []
+        for middle in dots {
+            let near = dots.filter { dot in
+                let d = hypot(dot.x - middle.x, dot.y - middle.y)
+                return d >= 5 && d <= 23 && Double(max(dot.area, middle.area)) / Double(min(dot.area, middle.area)) < 2.6
+            }
+            if near.count < 2 { continue }
+            for i in 0..<(near.count - 1) { for j in (i + 1)..<near.count {
+                let a = near[i], b = near[j]
+                let ax = a.x - middle.x, ay = a.y - middle.y
+                let bx = b.x - middle.x, by = b.y - middle.y
+                let da = hypot(ax, ay), db = hypot(bx, by)
+                if abs(da - db) / max(da, db) > 0.32 { continue }
+                if (ax * bx + ay * by) / (da * db) > -0.86 { continue }
+                let offset = hypot((a.x + b.x) / 2 - middle.x, (a.y + b.y) / 2 - middle.y)
+                if offset > max(2.6, 0.24 * max(da, db)) { continue }
+                let x = (a.x + middle.x + b.x) / 3, y = (a.y + middle.y + b.y) / 3
+                if found.contains(where: { hypot($0.x - x, $0.y - y) < 5 }) { continue }
+                found.append(Waypoint(x: x, y: y, score: Double(a.area + middle.area + b.area) - offset * 2))
+            }}
+        }
+        return Array(found.sorted(by: { $0.score > $1.score }).prefix(24))
+    }
+
+    private static func sample(_ bytes: [UInt8], _ width: Int, _ height: Int,
+                               _ a: Waypoint, _ b: Waypoint, _ q: Double,
+                               _ offsetX: Double, _ offsetY: Double) throws -> String {
+        let dx = b.x - a.x, dy = b.y - a.y, chord = hypot(dx, dy)
+        let cosine = dx / chord, sine = dy / chord
+        let sizeX = chord / (0.42 * sqrt(2.0)), sizeY = sizeX * q
+        let cx = (a.x + b.x) / 2 - sine * chord * q / 2 + offsetX
+        let cy = (a.y + b.y) / 2 + cosine * chord * q / 2 + offsetY
         var bits = [UInt8](repeating: 0, count: bitCount)
         for i in 0..<bitCount {
-            let slot = slots[i], u = (slot.x - 0.22) / 0.56, v = (slot.y - 0.22) / 0.56
-            let x = Int((a.x + u * (b.x - a.x) + v * (c.x - a.x)).rounded())
-            let y = Int((a.y + u * (b.y - a.y) + v * (c.y - a.y)).rounded())
+            let slot = slots[i]
+            let xx = (slot.x - 0.5) * sizeX, yy = (slot.y - 0.5) * sizeY
+            let x = Int((cx + xx * cosine - yy * sine).rounded())
+            let y = Int((cy + xx * sine + yy * cosine).rounded())
             guard x >= 0 && y >= 0 && x < width && y < height else { throw PolarCodeError.invalidImage }
             bits[i] = luminance(bytes, width, x, y) > 95 ? 1 : 0
         }
         return try decodeBits(bits)
     }
 
-    /** Full-frame image scanner. Returns nil when no AsterHalo code is readable. */
+    /** Full-frame scanner using the two three-dot waypoints. */
     public static func decode(_ image: CGImage) -> String? {
         guard let bytes = try? rgba(image) else { return nil }
-        let width = image.width, height = image.height, eyes = findEyes(bytes, width, height)
-        if eyes.count < 3 { return nil }
-        for i in 0..<eyes.count { for j in (i + 1)..<eyes.count { for k in (j + 1)..<eyes.count {
-            let trio = [eyes[i], eyes[j], eyes[k]]
-            for corner in 0..<3 {
-                let a = trio[corner], b = trio[(corner + 1) % 3], c = trio[(corner + 2) % 3]
-                let abx = b.x - a.x, aby = b.y - a.y, acx = c.x - a.x, acy = c.y - a.y
-                let lab = hypot(abx, aby), lac = hypot(acx, acy)
-                if lab < 70 || lac < 70 || abs(lab - lac) / max(lab, lac) > 0.35 || abs((abx * acx + aby * acy) / (lab * lac)) > 0.35 { continue }
-                if max(a.diameter, b.diameter, c.diameter) / min(a.diameter, b.diameter, c.diameter) > 1.8 { continue }
-                if let value = try? sample(bytes, width, height, a, b, c) { return value }
-                if let value = try? sample(bytes, width, height, a, c, b) { return value }
-            }
-        }}}
+        let width = image.width, height = image.height
+        let waypoints = waypointCandidates(markerDots(bytes, width, height))
+        let ratios: [Double] = [1, 0.66, 0.662, 0.75, 0.8, 0.9, 1.1] + (0...60).map { 0.6 + Double($0) * 0.01 }
+        let offsets: [(Double, Double)] = [(0,0),(0,0.5),(0,-0.5),(-0.5,0),(0.5,0),(-0.5,-0.5),(0.5,0.5),(-0.5,0.5),(0.5,-0.5)]
+        if waypoints.count < 2 { return nil }
+        for i in 0..<(waypoints.count - 1) { for j in (i + 1)..<waypoints.count {
+            let a = waypoints[i], b = waypoints[j], chord = hypot(a.x - b.x, a.y - b.y)
+            if chord < 90 || chord > Double(max(width, height)) * 0.9 { continue }
+            for (left, right) in [(a,b),(b,a)] { for q in ratios { for (ox, oy) in offsets {
+                if let value = try? sample(bytes, width, height, left, right, q, ox, oy) { return value }
+            }}}
+        }}
         return nil
     }
 
-    /** Render the same circular data ring as the web SDK, with a static vapor core. */
+    /** Render the one-row ring and encoded particle cloud. */
     public static func render(_ payload: String, size: Int = 800) throws -> CGImage {
         guard size >= 600 && size <= 4096 else { throw PolarCodeError.invalidImage }
         let bits = try encodeBits(payload)
         guard let context = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8,
                                       bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { throw PolarCodeError.invalidImage }
-        func color(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat, _ alpha: CGFloat = 1) -> CGColor {
-            CGColor(srgbRed: red / 255, green: green / 255, blue: blue / 255, alpha: alpha)
+        let s = Double(size)
+        context.translateBy(x: 0, y: CGFloat(size)); context.scaleBy(x: 1, y: -1)
+        func color(_ r: Int, _ g: Int, _ b: Int) -> CGColor {
+            CGColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
         }
         func circle(_ x: Double, _ y: Double, _ radius: Double, _ fill: CGColor) {
             context.setFillColor(fill)
             context.fillEllipse(in: CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2))
         }
-        let s = Double(size)
+        func ridge(_ a: Double) -> Double {
+            0.219 + 0.018 * sin(5 * a + 0.65) + 0.012 * cos(9 * a - 0.9) + 0.005 * sin(17 * a + 0.35)
+        }
         context.setFillColor(color(4, 12, 22)); context.fill(CGRect(x: 0, y: 0, width: size, height: size))
         circle(s / 2, s / 2, s * 0.475, color(16, 35, 56))
+        let palette = [color(81,233,245), color(244,95,175), color(255,208,120), color(178,160,255)]
         var random = Random32(0x6f0b91e2)
-        let palette = [color(73,229,244), color(242,92,179), color(240,196,106), color(131,158,255)]
-        for i in 0..<6200 {
-            let angle = random.unit() * Double.pi * 2
-            let spread = (random.unit() + random.unit()) / 2
-            let wave = 0.026 * sin(5 * angle + 0.4) + 0.016 * cos(9 * angle - 0.5) + 0.008 * sin(16 * angle + 0.7)
-            let radius = 0.158 + 0.145 * spread + wave
-            let x = s * (0.5 + radius * cos(angle)), y = s * (0.5 + radius * sin(angle))
-            let band = min(3, Int((sin(angle * 3 + radius * 34) + 1) * 1.999))
-            let opacity: CGFloat = i % 37 == 0 ? 0.82 : i % 7 == 0 ? 0.59 : 0.39
+        for i in 0..<36000 {
+            let a = random.unit() * 2 * Double.pi
+            let v = random.unit() * 2 * Double.pi
+            let cross = sqrt(random.unit()) * 0.082
+            let fold = 0.012 * sin(13 * a + 2.2 * v) + 0.006 * cos(23 * a - 3 * v)
+            let r = ridge(a) + cross * cos(v) + fold
+            let depth = cross * sin(v), angle = a + 0.011 * sin(7 * a + v)
+            let x = s * (0.5 + r * cos(angle)), y = s * (0.5 + r * sin(angle) + depth * 0.48)
+            let band = min(3, Int(floor((sin(2.9 * a + 19 * r + v * 0.36) + 1) * 1.999)))
+            let light = 0.5 + 0.5 * max(0, sin(6 * a + v + r * 29))
+            let opacity = i % 89 == 0 ? 0.96 : 0.48 + light * 0.47
+            let dot = i % 89 == 0 ? 1.75 : i % 13 == 0 ? 1.12 : 0.58
             context.setAlpha(opacity)
-            circle(x, y, (i % 37 == 0 ? 1.8 : i % 7 == 0 ? 1.08 : 0.48) * s / 800, palette[band])
+            circle(x, y, dot * s / 800, palette[band])
         }
         context.setAlpha(1)
-        for i in 0..<bitCount {
-            let fill = bits[i] == 1 ? (i % 11 == 0 ? color(230,251,255) : i % 5 == 0 ? color(180,239,245) : color(139,220,232)) : color(36,58,80)
-            circle(slots[i].x * s, slots[i].y * s, (bits[i] == 1 ? 2.25 : 1.98) * s / 800, fill)
+        for slot in slots where !slot.ring {
+            circle(slot.x * s, slot.y * s, 1.85 * s / 800, color(16, 34, 53))
         }
-        for (x, y) in [(0.22,0.22),(0.78,0.22),(0.22,0.78)] {
-            circle(x * s, y * s, 29 * s / 800, color(201,239,243))
-            circle(x * s, y * s, 24 * s / 800, color(10,27,44))
-            circle(x * s, y * s, 15 * s / 800, color(217,249,247))
-            circle(x * s, y * s, 9 * s / 800, color(10,27,44))
+        let dataColors = [color(163,238,242), color(255,180,221), color(255,225,161), color(203,195,255)]
+        for (i, slot) in slots.enumerated() {
+            let x = slot.x * s, y = slot.y * s
+            if bits[i] == 1 {
+                let angle = atan2(slot.y - 0.5, slot.x - 0.5)
+                let band = min(3, Int(floor((sin(angle * 2.9 + Double(i) * 0.37) + 1) * 1.999)))
+                circle(x, y, (slot.ring ? 1.7 : 1.78) * s / 800, slot.ring ? color(195,233,233) : dataColors[band])
+            } else {
+                circle(x, y, (slot.ring ? 1.275 : 1.335) * s / 800, slot.ring ? color(35,57,75) : color(38,60,80))
+            }
         }
-        circle(s / 2, s / 2, s * 0.105, color(14,29,45))
+        for base in [5 * Double.pi / 4, 7 * Double.pi / 4] { for offset in [-0.029, 0.0, 0.029] {
+            let angle = base + offset
+            circle(s * (0.5 + 0.42 * cos(angle)), s * (0.5 + 0.42 * sin(angle)), 3.05 * s / 800, color(214,248,245))
+        }}
+        context.setStrokeColor(color(112,214,226)); context.setAlpha(0.45)
+        context.setLineWidth(1.5 * CGFloat(s) / 800)
+        context.strokeEllipse(in: CGRect(x: s * 0.025, y: s * 0.025, width: s * 0.95, height: s * 0.95))
+        context.setAlpha(1)
         context.setStrokeColor(color(233,252,255)); context.setLineWidth(6 * CGFloat(s) / 800)
         context.setLineCap(.round)
-        context.move(to: CGPoint(x: s * 0.484, y: s * 0.466)); context.addLine(to: CGPoint(x: s * 0.498, y: s * 0.508))
-        context.addLine(to: CGPoint(x: s * 0.528, y: s * 0.494)); context.strokePath()
-        context.move(to: CGPoint(x: s * 0.498, y: s * 0.508)); context.addLine(to: CGPoint(x: s * 0.476, y: s * 0.529)); context.strokePath()
+        context.move(to: CGPoint(x: s * 0.484, y: s * 0.466))
+        context.addLine(to: CGPoint(x: s * 0.498, y: s * 0.508))
+        context.addLine(to: CGPoint(x: s * 0.528, y: s * 0.494))
+        context.strokePath()
+        context.move(to: CGPoint(x: s * 0.498, y: s * 0.508))
+        context.addLine(to: CGPoint(x: s * 0.476, y: s * 0.529))
+        context.strokePath()
         guard let image = context.makeImage() else { throw PolarCodeError.invalidImage }
         return image
     }

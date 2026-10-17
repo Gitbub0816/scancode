@@ -15,6 +15,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.zip.CRC32;
 
 /** AsterHalo's proprietary circular code and native Android frame decoder. */
@@ -32,40 +34,54 @@ public final class AsterHaloPolar {
     }
     private static final class Slot {
         final double x, y;
-        Slot(double x, double y) { this.x = x; this.y = y; }
+        final boolean ring;
+        Slot(double x, double y, boolean ring) { this.x = x; this.y = y; this.ring = ring; }
     }
-    private static final class Eye {
-        final double x, y, diameter;
-        Eye(double x, double y, double diameter) { this.x=x; this.y=y; this.diameter=diameter; }
+    private static final class Dot {
+        final double x,y;final int area;
+        Dot(double x,double y,int area){this.x=x;this.y=y;this.area=area;}
     }
-    private static final class Blob {
-        final double x, y;
-        final int width, height;
-        Blob(double x,double y,int width,int height) { this.x=x;this.y=y;this.width=width;this.height=height; }
+    private static final class Waypoint {
+        final double x,y,score;
+        Waypoint(double x,double y,double score){this.x=x;this.y=y;this.score=score;}
     }
 
     private static Slot[] slots() {
-        List<Slot> all = new ArrayList<>();
-        double[][] eyes = {{.22,.22},{.78,.22},{.22,.78}};
-        for (int track=0;track<12;track++) {
-            double radius=.338+track*(.12/11);
-            int count=(int)Math.floor(2*Math.PI*radius*800/8.4);
-            for(int sector=0;sector<count;sector++) {
-                double angle=(sector+(track%2)*.5)*2*Math.PI/count-Math.PI/2;
-                double displaced=radius+.0018*Math.sin(7*angle+.4);
-                double x=.5+displaced*Math.cos(angle), y=.5+displaced*Math.sin(angle);
-                boolean blocked=false;
-                for(double[] eye:eyes) if(Math.hypot(x-eye[0],y-eye[1])<.052) {blocked=true;break;}
-                if(!blocked) all.add(new Slot(x,y));
+        List<Slot> inner=new ArrayList<>();
+        Map<String,List<Slot>> cells=new HashMap<>();
+        Random32 placement=new Random32(0x716ca2b5);
+        while(inner.size()<BITS-512) {
+            double angle=placement.unit()*2*Math.PI;
+            double radial=placement.unit();
+            double radius=Math.sqrt(.14*.14+radial*(.305*.305-.14*.14));
+            double x=.5+radius*Math.cos(angle),y=.5+radius*Math.sin(angle);
+            int gx=(int)Math.floor(x/.007),gy=(int)Math.floor(y/.007);
+            boolean near=false;
+            for(int dx=-1;dx<=1;dx++)for(int dy=-1;dy<=1;dy++) {
+                List<Slot> previous=cells.get((gx+dx)+","+(gy+dy));
+                if(previous==null)continue;
+                for(Slot slot:previous)if(Math.hypot(x-slot.x,y-slot.y)<.0065){near=true;break;}
             }
+            if(near)continue;
+            Slot slot=new Slot(x,y,false);inner.add(slot);
+            cells.computeIfAbsent(gx+","+gy,key->new ArrayList<>()).add(slot);
+        }
+        double gap=.06,m1=5*Math.PI/4,m2=7*Math.PI/4;
+        double[][] ranges={{0,m1-gap},{m1+gap,m2-gap},{m2+gap,2*Math.PI}};
+        double total=0;for(double[] range:ranges)total+=range[1]-range[0];
+        List<Slot> all=new ArrayList<>(inner);
+        for(int i=0;i<512;i++) {
+            double t=(i+.5)*total/512,angle=0;
+            for(double[] range:ranges){if(t<range[1]-range[0]){angle=range[0]+t;break;}t-=range[1]-range[0];}
+            all.add(new Slot(.5+.42*Math.cos(angle),.5+.42*Math.sin(angle),true));
         }
         Random32 shuffle=new Random32(0xa57e2c91);
         for(int i=all.size()-1;i>0;i--) {
             int j=(int)(Integer.toUnsignedLong(shuffle.next())%(i+1));
             Slot item=all.get(i);all.set(i,all.get(j));all.set(j,item);
         }
-        if(all.size()<BITS) throw new IllegalStateException("polar geometry has insufficient capacity");
-        return all.subList(0,BITS).toArray(new Slot[0]);
+        if(all.size()!=BITS)throw new IllegalStateException("polar geometry capacity mismatch");
+        return all.toArray(new Slot[0]);
     }
 
     /** Exact UTF-8 payload to the shared 2,040-bit polar wire format. */
@@ -74,7 +90,7 @@ public final class AsterHaloPolar {
         byte[] utf8=payload.getBytes(StandardCharsets.UTF_8);
         if(utf8.length>MAX_PAYLOAD) throw new IllegalArgumentException("payload exceeds 214 UTF-8 bytes");
         int[] data=new int[CODE_BYTES];
-        data[0]=0x50;data[1]=0x43;data[2]=1;data[3]=utf8.length>>>8;data[4]=utf8.length&255;
+        data[0]=0x50;data[1]=0x43;data[2]=2;data[3]=utf8.length>>>8;data[4]=utf8.length&255;
         CRC32 crc=new CRC32();crc.update(utf8);long check=crc.getValue();
         data[5]=(int)(check>>>24);data[6]=(int)(check>>>16)&255;data[7]=(int)(check>>>8)&255;data[8]=(int)check&255;
         for(int i=0;i<utf8.length;i++) data[9+i]=utf8[i]&255;
@@ -96,7 +112,7 @@ public final class AsterHaloPolar {
         }
         try { new ReedSolomonDecoder(GenericGF.QR_CODE_FIELD_256).decode(data,PARITY_BYTES); }
         catch(Exception error) { throw new IllegalArgumentException("polar error correction failed",error); }
-        if(data[0]!=0x50||data[1]!=0x43||data[2]!=1) throw new IllegalArgumentException("polar marker invalid");
+        if(data[0]!=0x50||data[1]!=0x43||data[2]!=2) throw new IllegalArgumentException("polar marker invalid");
         int length=(data[3]<<8)|data[4];
         if(length<1||length>MAX_PAYLOAD) throw new IllegalArgumentException("polar length invalid");
         byte[] utf8=new byte[length];for(int i=0;i<length;i++) utf8[i]=(byte)data[9+i];
@@ -107,122 +123,169 @@ public final class AsterHaloPolar {
         catch(CharacterCodingException error) { throw new IllegalArgumentException("polar UTF-8 invalid",error); }
     }
 
-    /** Static circular rendering. The moving vapor is added by AsterHaloView. */
+    /** Static one-row ring and encoded particle cloud. */
     public static Bitmap render(String payload,int size) {
-        if(size<600||size>4096) throw new IllegalArgumentException("size must be 600-4096");
+        if(size<600||size>4096)throw new IllegalArgumentException("size must be 600-4096");
         byte[] bits=encodeBits(payload);
         Bitmap image=Bitmap.createBitmap(size,size,Bitmap.Config.ARGB_8888);
         Canvas canvas=new Canvas(image);Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-        canvas.drawColor(Color.rgb(4,12,22));
-        paint.setColor(Color.rgb(16,35,56));canvas.drawCircle(size/2f,size/2f,size*.475f,paint);
-        Random32 vapor=new Random32(0x6f0b91e2);
-        int[] palette={0xff49e5f4,0xfff25cb3,0xfff0c46a,0xff839eff};
-        for(int i=0;i<6200;i++) {
-            double a=vapor.unit()*Math.PI*2, spread=(vapor.unit()+vapor.unit())/2;
-            double wave=.026*Math.sin(5*a+.4)+.016*Math.cos(9*a-.5)+.008*Math.sin(16*a+.7);
-            double radius=.158+.145*spread+wave;
-            float x=(float)(size*(.5+radius*Math.cos(a))),y=(float)(size*(.5+radius*Math.sin(a)));
-            int band=Math.min(3,(int)((Math.sin(a*3+radius*34)+1)*1.999));
-            paint.setColor(palette[band]);paint.setAlpha(i%37==0?210:i%7==0?150:100);
-            canvas.drawCircle(x,y,(i%37==0?1.8f:i%7==0?1.08f:.48f)*size/800f,paint);
+        canvas.drawColor(0xff040c16);
+        paint.setColor(0xff102338);canvas.drawCircle(size/2f,size/2f,size*.475f,paint);
+        Random32 random=new Random32(0x6f0b91e2);
+        int[] palette={0xff51e9f5,0xfff45faf,0xffffd078,0xffb2a0ff};
+        for(int i=0;i<36000;i++) {
+            double a=random.unit()*2*Math.PI,v=random.unit()*2*Math.PI;
+            double cross=Math.sqrt(random.unit())*.082;
+            double fold=.012*Math.sin(13*a+2.2*v)+.006*Math.cos(23*a-3*v);
+            double r=.219+.018*Math.sin(5*a+.65)+.012*Math.cos(9*a-.9)+.005*Math.sin(17*a+.35)+cross*Math.cos(v)+fold;
+            double depth=cross*Math.sin(v),angle=a+.011*Math.sin(7*a+v);
+            float x=(float)(size*(.5+r*Math.cos(angle))),y=(float)(size*(.5+r*Math.sin(angle)+depth*.48));
+            int band=Math.min(3,(int)Math.floor((Math.sin(2.9*a+19*r+v*.36)+1)*1.999));
+            double light=.5+.5*Math.max(0,Math.sin(6*a+v+r*29));
+            double opacity=i%89==0?.96:.48+light*.47;
+            float dot=(float)(i%89==0?1.75:i%13==0?1.12:.58);
+            paint.setColor(palette[band]);paint.setAlpha((int)(opacity*255));
+            canvas.drawCircle(x,y,dot*size/800f,paint);
         }
+        paint.setAlpha(255);
+        for(Slot slot:SLOTS)if(!slot.ring){paint.setColor(0xff102235);canvas.drawCircle((float)(slot.x*size),(float)(slot.y*size),1.85f*size/800f,paint);}
+        int[] dataColors={0xffa3eef2,0xffffb4dd,0xffffe1a1,0xffcbc3ff};
         for(int i=0;i<BITS;i++) {
             Slot slot=SLOTS[i];
-            paint.setColor(bits[i]==1?(i%11==0?0xffe6fbff:i%5==0?0xffb4eff5:0xff8bdce8):0xff243a50);
-            paint.setAlpha(255);
-            canvas.drawCircle((float)(slot.x*size),(float)(slot.y*size),size*(bits[i]==1?2.25f:1.98f)/800f,paint);
+            float x=(float)(slot.x*size),y=(float)(slot.y*size);
+            if(bits[i]==1) {
+                double angle=Math.atan2(slot.y-.5,slot.x-.5);
+                int band=Math.min(3,(int)Math.floor((Math.sin(angle*2.9+i*.37)+1)*1.999));
+                paint.setColor(slot.ring?0xffc3e9e9:dataColors[band]);
+                canvas.drawCircle(x,y,(slot.ring?1.7f:1.78f)*size/800f,paint);
+            } else {
+                paint.setColor(slot.ring?0xff23394b:0xff263c50);
+                canvas.drawCircle(x,y,(slot.ring?1.275f:1.335f)*size/800f,paint);
+            }
         }
-        double[][] eyes={{.22,.22},{.78,.22},{.22,.78}};
-        for(double[] eye:eyes) {
-            float x=(float)(eye[0]*size),y=(float)(eye[1]*size),s=size/800f;
-            paint.setColor(0xffc9eff3);canvas.drawCircle(x,y,29*s,paint);
-            paint.setColor(0xff0a1b2c);canvas.drawCircle(x,y,24*s,paint);
-            paint.setColor(0xffd9f9f7);canvas.drawCircle(x,y,15*s,paint);
-            paint.setColor(0xff0a1b2c);canvas.drawCircle(x,y,9*s,paint);
+        paint.setColor(0xffd6f8f5);
+        for(double base:new double[]{5*Math.PI/4,7*Math.PI/4})for(double offset:new double[]{-.029,0,.029}) {
+            double angle=base+offset;
+            canvas.drawCircle((float)(size*(.5+.42*Math.cos(angle))),(float)(size*(.5+.42*Math.sin(angle))),3.05f*size/800f,paint);
         }
-        paint.setColor(0xff0e1d2d);canvas.drawCircle(size/2f,size/2f,size*.105f,paint);
-        paint.setColor(0xffe9fcff);paint.setStrokeWidth(size*6/800f);paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStyle(Paint.Style.STROKE);paint.setColor(0x7270d6e2);paint.setStrokeWidth(1.5f*size/800f);
+        canvas.drawCircle(size/2f,size/2f,size*.475f,paint);
+        paint.setColor(0xffe9fcff);paint.setStrokeWidth(6f*size/800f);paint.setStrokeCap(Paint.Cap.ROUND);
         canvas.drawLine(size*.484f,size*.466f,size*.498f,size*.508f,paint);
         canvas.drawLine(size*.498f,size*.508f,size*.528f,size*.494f,paint);
         canvas.drawLine(size*.498f,size*.508f,size*.476f,size*.529f,paint);
         return image;
     }
 
+    /** Transparent fixed data layer for display above moving particles. */
+    public static Bitmap renderDataLayer(String payload,int size) {
+        if(size<600||size>4096)throw new IllegalArgumentException("size must be 600-4096");
+        byte[] bits=encodeBits(payload);
+        Bitmap image=Bitmap.createBitmap(size,size,Bitmap.Config.ARGB_8888);
+        Canvas canvas=new Canvas(image);Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+        int[] dataColors={0xffa3eef2,0xffffb4dd,0xffffe1a1,0xffcbc3ff};
+        for(Slot slot:SLOTS)if(!slot.ring){paint.setColor(0xff102235);canvas.drawCircle((float)(slot.x*size),(float)(slot.y*size),2.05f*size/800f,paint);}
+        for(int i=0;i<BITS;i++) {
+            Slot slot=SLOTS[i];float x=(float)(slot.x*size),y=(float)(slot.y*size);
+            if(bits[i]==1){
+                double angle=Math.atan2(slot.y-.5,slot.x-.5);
+                int band=Math.min(3,(int)Math.floor((Math.sin(angle*2.9+i*.37)+1)*1.999));
+                paint.setColor(slot.ring?0xffc3e9e9:dataColors[band]);
+                canvas.drawCircle(x,y,(slot.ring?1.7f:1.78f)*size/800f,paint);
+            }else{
+                paint.setColor(slot.ring?0xff23394b:0xff263c50);
+                canvas.drawCircle(x,y,(slot.ring?1.275f:1.335f)*size/800f,paint);
+            }
+        }
+        paint.setColor(0xffd6f8f5);
+        for(double base:new double[]{5*Math.PI/4,7*Math.PI/4})for(double offset:new double[]{-.029,0,.029}) {
+            double angle=base+offset;
+            canvas.drawCircle((float)(size*(.5+.42*Math.cos(angle))),(float)(size*(.5+.42*Math.sin(angle))),3.05f*size/800f,paint);
+        }
+        return image;
+    }
+
     private static int luma(int color) { return (Color.red(color)*54+Color.green(color)*183+Color.blue(color)*19)>>8; }
 
-    private static List<Eye> findEyes(int[] pixels,int width,int height) {
-        int factor=Math.max(1,(Math.max(width,height)+999)/1000),w=width/factor,h=height/factor;
-        byte[] light=new byte[w*h],gray=new byte[w*h],seen=new byte[w*h];
-        for(int y=0;y<h;y++)for(int x=0;x<w;x++) {
-            int value=luma(pixels[Math.min(height-1,y*factor+factor/2)*width+Math.min(width-1,x*factor+factor/2)]);
-            gray[y*w+x]=(byte)value;light[y*w+x]=(byte)(value>160?1:0);
-        }
-        int[] queue=new int[w*h];List<Blob> blobs=new ArrayList<>();
+    private static List<Dot> markerDots(int[] pixels,int width,int height) {
+        byte[] light=new byte[width*height],seen=new byte[width*height];
+        for(int y=0;y<height;y++)for(int x=0;x<width;x++)light[y*width+x]=(byte)(luma(pixels[y*width+x])>205?1:0);
+        int[] queue=new int[width*height];List<Dot> dots=new ArrayList<>();
         for(int start=0;start<light.length;start++) {
             if(light[start]==0||seen[start]!=0)continue;
-            int head=0,tail=0,area=0,minX=w,maxX=0,minY=h,maxY=0;long sumX=0,sumY=0;
-            queue[tail++]=start;seen[start]=1;
+            int head=0,tail=1,area=0,minX=width,maxX=0,minY=height,maxY=0;long sumX=0,sumY=0;
+            queue[0]=start;seen[start]=1;
             while(head<tail) {
-                int p=queue[head++],x=p%w,y=p/w;area++;sumX+=x;sumY+=y;
+                int p=queue[head++],x=p%width,y=p/width;area++;sumX+=x;sumY+=y;
                 minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);
                 for(int oy=-1;oy<=1;oy++)for(int ox=-1;ox<=1;ox++) {
                     if(ox==0&&oy==0)continue;int nx=x+ox,ny=y+oy;
-                    if(nx<0||ny<0||nx>=w||ny>=h)continue;int n=ny*w+nx;
+                    if(nx<0||ny<0||nx>=width||ny>=height)continue;int n=ny*width+nx;
                     if(light[n]!=0&&seen[n]==0){seen[n]=1;queue[tail++]=n;}
                 }
             }
-            int bw=maxX-minX+1,bh=maxY-minY+1;double fill=(double)area/(bw*bh);
-            if(bw<12||bh<12||bw>Math.min(w,h)*.2||bh>Math.min(w,h)*.2||bw/(double)bh<.7||bw/(double)bh>1.3||fill<.12||fill>.72)continue;
-            double cx=(double)sumX/area,cy=(double)sumY/area;
-            if((gray[Math.round((float)cy)*w+Math.round((float)cx)]&255)>110)continue;
-            blobs.add(new Blob(cx,cy,bw,bh));
+            int bw=maxX-minX+1,bh=maxY-minY+1;double ratio=(double)bw/bh;
+            if(area<11||area>130||bw<3||bh<3||bw>18||bh>18||ratio<.55||ratio>1.8)continue;
+            dots.add(new Dot((double)sumX/area,(double)sumY/area,area));
         }
-        List<Eye> eyes=new ArrayList<>();
-        for(Blob outer:blobs) {
-            boolean paired=false;
-            for(Blob inner:blobs) {
-                if(outer==inner)continue;
-                double ratio=(double)outer.width/inner.width;
-                if(ratio>1.55&&ratio<2.35&&Math.hypot(inner.x-outer.x,inner.y-outer.y)<outer.width*.08){paired=true;break;}
-            }
-            if(!paired)continue;
-            boolean duplicate=false;
-            for(Eye eye:eyes)if(Math.hypot(eye.x-outer.x*factor,eye.y-outer.y*factor)<outer.width*factor*.3){duplicate=true;break;}
-            if(!duplicate)eyes.add(new Eye(outer.x*factor,outer.y*factor,outer.width*factor));
-        }
-        eyes.sort(Comparator.comparingDouble((Eye e)->e.diameter).reversed());
-        return eyes.subList(0,Math.min(30,eyes.size()));
+        dots.sort(Comparator.comparingInt((Dot dot)->dot.area).reversed());
+        return dots.subList(0,Math.min(180,dots.size()));
     }
 
-    private static String sample(int[] pixels,int width,int height,Eye a,Eye b,Eye c) {
+    private static List<Waypoint> waypointCandidates(List<Dot> dots) {
+        List<Waypoint> found=new ArrayList<>();
+        for(Dot middle:dots) {
+            List<Dot> near=new ArrayList<>();
+            for(Dot dot:dots){double d=Math.hypot(dot.x-middle.x,dot.y-middle.y);
+                if(d>=5&&d<=23&&(double)Math.max(dot.area,middle.area)/Math.min(dot.area,middle.area)<2.6)near.add(dot);
+            }
+            for(int i=0;i<near.size();i++)for(int j=i+1;j<near.size();j++) {
+                Dot a=near.get(i),b=near.get(j);
+                double ax=a.x-middle.x,ay=a.y-middle.y,bx=b.x-middle.x,by=b.y-middle.y;
+                double da=Math.hypot(ax,ay),db=Math.hypot(bx,by);
+                if(Math.abs(da-db)/Math.max(da,db)>.32||(ax*bx+ay*by)/(da*db)>-.86)continue;
+                double offset=Math.hypot((a.x+b.x)/2-middle.x,(a.y+b.y)/2-middle.y);
+                if(offset>Math.max(2.6,.24*Math.max(da,db)))continue;
+                double x=(a.x+middle.x+b.x)/3,y=(a.y+middle.y+b.y)/3;
+                boolean duplicate=false;for(Waypoint w:found)if(Math.hypot(w.x-x,w.y-y)<5){duplicate=true;break;}
+                if(!duplicate)found.add(new Waypoint(x,y,a.area+middle.area+b.area-offset*2));
+            }
+        }
+        found.sort(Comparator.comparingDouble((Waypoint w)->w.score).reversed());
+        return found.subList(0,Math.min(24,found.size()));
+    }
+
+    private static String sample(int[] pixels,int width,int height,Waypoint a,Waypoint b,double q,double offsetX,double offsetY) {
+        double dx=b.x-a.x,dy=b.y-a.y,chord=Math.hypot(dx,dy),cos=dx/chord,sin=dy/chord;
+        double sizeX=chord/(.42*Math.sqrt(2)),sizeY=sizeX*q;
+        double cx=(a.x+b.x)/2-sin*chord*q/2+offsetX,cy=(a.y+b.y)/2+cos*chord*q/2+offsetY;
         byte[] bits=new byte[BITS];
         for(int i=0;i<BITS;i++) {
-            Slot slot=SLOTS[i];double u=(slot.x-.22)/.56,v=(slot.y-.22)/.56;
-            int x=(int)Math.round(a.x+u*(b.x-a.x)+v*(c.x-a.x));
-            int y=(int)Math.round(a.y+u*(b.y-a.y)+v*(c.y-a.y));
+            Slot slot=SLOTS[i];double xx=(slot.x-.5)*sizeX,yy=(slot.y-.5)*sizeY;
+            int x=(int)Math.round(cx+xx*cos-yy*sin),y=(int)Math.round(cy+xx*sin+yy*cos);
             if(x<0||y<0||x>=width||y>=height)throw new IllegalArgumentException("symbol outside frame");
             bits[i]=(byte)(luma(pixels[y*width+x])>95?1:0);
         }
         return decodeBits(bits);
     }
 
-    /** Finds the three eyes and decodes a full camera Bitmap; null means no readable code. */
+    /** Reads the one-row ring and cloud using two three-dot waypoints. */
     public static String decode(Bitmap bitmap) {
         if(bitmap==null)throw new IllegalArgumentException("bitmap is required");
-        int width=bitmap.getWidth(),height=bitmap.getHeight();
-        if(width<200||height<200)return null;
+        int width=bitmap.getWidth(),height=bitmap.getHeight();if(width<200||height<200)return null;
         int[] pixels=new int[width*height];bitmap.getPixels(pixels,0,width,0,0,width,height);
-        List<Eye> eyes=findEyes(pixels,width,height);
-        for(int i=0;i<eyes.size();i++)for(int j=i+1;j<eyes.size();j++)for(int k=j+1;k<eyes.size();k++) {
-            Eye[] trio={eyes.get(i),eyes.get(j),eyes.get(k)};
-            for(int corner=0;corner<3;corner++) {
-                Eye a=trio[corner],b=trio[(corner+1)%3],c=trio[(corner+2)%3];
-                double abx=b.x-a.x,aby=b.y-a.y,acx=c.x-a.x,acy=c.y-a.y;
-                double lab=Math.hypot(abx,aby),lac=Math.hypot(acx,acy);
-                if(lab<70||lac<70||Math.abs(lab-lac)/Math.max(lab,lac)>.35||Math.abs((abx*acx+aby*acy)/(lab*lac))>.35)continue;
-                if(Math.max(a.diameter,Math.max(b.diameter,c.diameter))/Math.min(a.diameter,Math.min(b.diameter,c.diameter))>1.8)continue;
-                try{return sample(pixels,width,height,a,b,c);}catch(Exception ignored){}
-                try{return sample(pixels,width,height,a,c,b);}catch(Exception ignored){}
+        List<Waypoint> points=waypointCandidates(markerDots(pixels,width,height));
+        double[] ratios={1,.66,.662,.75,.8,.9,1.1};
+        double[][] offsets={{0,0},{0,.5},{0,-.5},{-.5,0},{.5,0},{-.5,-.5},{.5,.5},{-.5,.5},{.5,-.5}};
+        for(int i=0;i<points.size();i++)for(int j=i+1;j<points.size();j++) {
+            Waypoint first=points.get(i),second=points.get(j);double chord=Math.hypot(first.x-second.x,first.y-second.y);
+            if(chord<90||chord>Math.max(width,height)*.9)continue;
+            for(int order=0;order<2;order++) {
+                Waypoint a=order==0?first:second,b=order==0?second:first;
+                for(int pass=0;pass<2;pass++)for(int ri=0;ri<(pass==0?ratios.length:61);ri++) {
+                    double q=pass==0?ratios[ri]:.6+ri*.01;
+                    for(double[] offset:offsets)try{return sample(pixels,width,height,a,b,q,offset[0],offset[1]);}catch(Exception ignored){}
+                }
             }
         }
         return null;

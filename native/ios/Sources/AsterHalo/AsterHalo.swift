@@ -67,6 +67,23 @@ public struct AsterHaloView: View {
                                 let color: Color = i % 4 == 0 ? .cyan : i % 4 == 1 ? .pink : i % 4 == 2 ? .yellow : .blue
                                 context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: diameter, height: diameter)), with: .color(color.opacity(0.45)))
                             }
+                            // Cover moving particles at every sampling point, then redraw the fixed code.
+                            if let bits = try? AsterHaloPolar.encodeBits(payload) {
+                                for slot in AsterHaloPolar.slots where !slot.ring {
+                                    let d = width * 4.1 / 800
+                                    let rect = CGRect(x: slot.x * width - d / 2, y: slot.y * width - d / 2, width: d, height: d)
+                                    context.fill(Path(ellipseIn: rect), with: .color(Color(red: 16/255, green: 34/255, blue: 53/255)))
+                                }
+                                let bright: [Color] = [Color(red: 163/255, green: 238/255, blue: 242/255), Color(red: 1, green: 180/255, blue: 221/255), Color(red: 1, green: 225/255, blue: 161/255), Color(red: 203/255, green: 195/255, blue: 1)]
+                                for (index, slot) in AsterHaloPolar.slots.enumerated() {
+                                    let angle = atan2(slot.y - 0.5, slot.x - 0.5)
+                                    let band = min(3, Int(floor((sin(angle * 2.9 + Double(index) * 0.37) + 1) * 1.999)))
+                                    let on = bits[index] == 1
+                                    let color = on ? (slot.ring ? Color(red: 195/255, green: 233/255, blue: 233/255) : bright[band]) : (slot.ring ? Color(red: 35/255, green: 57/255, blue: 75/255) : Color(red: 38/255, green: 60/255, blue: 80/255))
+                                    let d = width * (on ? (slot.ring ? 3.4 : 3.56) : (slot.ring ? 2.55 : 2.67)) / 800
+                                    context.fill(Path(ellipseIn: CGRect(x: slot.x * width - d / 2, y: slot.y * width - d / 2, width: d, height: d)), with: .color(color))
+                                }
+                            }
                         }
                     }
                 }

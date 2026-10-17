@@ -42,7 +42,7 @@ export interface PolarScannerOptions {
 }
 
 /**
- * Browser scanner for AsterHalo Polar. Finder eyes locate the symbol anywhere
+ * Browser scanner for AsterHalo Polar. Two three-dot waypoints locate the symbol anywhere
  * in the frame; a guided center crop remains as a fallback for difficult light.
  * This is not a stock-camera scanner.
  */

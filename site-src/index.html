@@ -63,7 +63,7 @@
   <main>
     <div class="eyebrow">Open source · Camera testing prototype</div>
     <h1>A code with a <em>pulse.</em></h1>
-    <p class="intro">Turn a link or short text into a circular particle code. The fixed outer ring carries the data; the inner cloud moves independently. This custom format currently needs the AsterHalo decoder; stock camera apps do not recognize it.</p>
+    <p class="intro">Turn a link or short text into a circular particle code. A single dotted outer track and the luminous inner cloud both carry data. Two groups of three dots guide the AsterHalo scanner. Stock camera apps do not recognize this custom format.</p>
     <div class="workspace">
       <section class="panel controls" aria-label="Generator controls">
         <h2>Create your code</h2>
@@ -84,12 +84,12 @@
       </section>
       <section class="panel preview-panel" aria-label="Code preview">
         <div id="preview"></div>
-        <p class="caption">The encoded dots stay fixed while the particle cloud flows inside them.</p>
+        <p class="caption">Encoded particles stay fixed while light flows through the cloud.</p>
       </section>
     </div>
     <section class="panel scanner" aria-label="AsterHalo camera scanner">
       <h2>Scan this circular code</h2>
-      <p class="hint">Use the AsterHalo camera on a second device and show the full circle. Camera access requires HTTPS or localhost. Finder detection is experimental.</p>
+      <p class="hint">Use the AsterHalo camera on a second device and show the full circle. Camera access requires HTTPS or localhost. Waypoint detection is experimental.</p>
       <button id="scan" class="secondary" type="button">Scan with AsterHalo camera</button>
       <div class="camera-wrap"><video id="camera" autoplay muted playsinline hidden></video><div class="guide"></div></div>
       <div id="scan-result" role="status" aria-live="polite"></div>

@@ -9,10 +9,11 @@ import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.View;
 
-/** Native circular code display. Encoded particles and finder eyes stay fixed. */
+/** Native circular code display. Encoded particles and waypoints stay fixed. */
 public class AsterHaloView extends View {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Bitmap symbol;
+    private Bitmap fixedData;
     private String payload;
     private boolean motion = true;
     private final long startedAt = System.nanoTime();
@@ -31,6 +32,7 @@ public class AsterHaloView extends View {
     }
     public void setPayload(String value) {
         symbol = AsterHaloPolar.render(value, 800);
+        fixedData = AsterHaloPolar.renderDataLayer(value, 800);
         payload = value;
         invalidate();
     }
@@ -69,5 +71,6 @@ public class AsterHaloView extends View {
             canvas.drawCircle(x, y, size * (i % 19 == 0 ? .0019f : .0008f), paint);
         }
         paint.setAlpha(255);
+        if (fixedData != null) canvas.drawBitmap(fixedData, null, new RectF(left, top, left + size, top + size), paint);
     }
 }
