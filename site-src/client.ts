@@ -13,7 +13,15 @@ function generated() {
   const value = payload.value.trim();
   encodePolar(value);
   current = value;
-  preview.innerHTML = renderPolarSvg(value, { size: 800, mark: mark.value.trim(), animated: motion.checked });
+  if (motion.checked) {
+    const live = document.createElement('iframe');
+    live.title = 'Animated AsterHalo code preview';
+    live.setAttribute('sandbox', 'allow-scripts');
+    live.srcdoc = packagePolarAnimatedHtml(value, { size: 800, mark: mark.value.trim() });
+    preview.replaceChildren(live);
+  } else {
+    preview.innerHTML = renderPolarSvg(value, { size: 800, mark: mark.value.trim() });
+  }
   status.textContent = 'Polar data encoded in the fixed outer ring. The inner cloud moves freely; use the SDK scanner to read it.';
 }
 
@@ -71,7 +79,7 @@ $('scan').addEventListener('click', async () => {
     }, { onError: report });
     video.hidden = false;
     button.textContent = 'Stop camera';
-    result.textContent = 'Center the full circle in the camera frame and fill the square guide.';
+    result.textContent = 'Show the full circle clearly in the camera frame.';
   } catch (error) { report(error); }
 });
 try { generated(); } catch (error) { report(error); }

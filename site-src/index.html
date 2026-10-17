@@ -42,6 +42,7 @@
     .downloads button { font-size:12px; }
     .preview-panel { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:30px; min-height:560px; background:radial-gradient(circle,#1d3b51 0,#10263b 39%,#0b1728 69%); overflow:hidden; }
     #preview { width:min(100%,510px)!important; height:auto!important; aspect-ratio:1; }
+    #preview iframe, #preview svg { display:block; width:100%; height:100%; border:0; }
     #preview img { border-radius:16px; }
     .caption { color:#9cb7c7; font-size:12px; text-align:center; margin:18px 0 0; }
     .status { min-height:20px; color:#ffb5bf; font-size:12px; margin-top:12px; }
@@ -58,7 +59,7 @@
   </style>
 </head>
 <body>
-  <header><a class="brand" href="/">ASTER<span>HALO</span></a><nav><a href="https://github.com/Gitbub0816/scancode">GitHub</a><a href="#api">API</a></nav></header>
+  <header><a class="brand" href="./">ASTER<span>HALO</span></a><nav><a href="https://github.com/Gitbub0816/scancode">GitHub</a><a href="#api">API</a></nav></header>
   <main>
     <div class="eyebrow">Open source · Camera testing prototype</div>
     <h1>A code with a <em>pulse.</em></h1>
@@ -83,7 +84,7 @@
       </section>
       <section class="panel preview-panel" aria-label="Code preview">
         <div id="preview"></div>
-        <p class="caption">The encoded dots stay fixed while the vapor breathes behind them.</p>
+        <p class="caption">The encoded dots stay fixed while the particle cloud flows inside them.</p>
       </section>
     </div>
     <section class="panel scanner" aria-label="AsterHalo camera scanner">
@@ -95,7 +96,7 @@
     </section>
     <p class="hint" id="api" style="margin-top:28px">This page generates codes on your device. A deployable API Worker example is included in the SDK source; the public page does not expose an API endpoint.</p>
   </main>
-  <footer><span>AsterHalo Polar is an experimental custom symbology. Aligned-image decoding is implemented; camera detection and stock-camera support are not.</span><span>MIT licensed SDK · No tracking in the generator</span></footer>
+  <footer><span>AsterHalo Polar is an experimental custom symbology. The SDK camera scanner detects it; stock camera apps do not.</span><span>MIT licensed SDK · No tracking in the generator</span></footer>
   <script type="module" src="/app.js"></script>
 </body>
 </html>
