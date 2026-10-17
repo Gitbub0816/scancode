@@ -1,4 +1,4 @@
-import { encodePolar, renderPolarSvg, packagePolarAnimatedHtml, startPolarCameraScanner, type Scanner } from '../src/index.js';
+import { encodePolar, renderPolarSvg, packagePolarAnimatedHtml, startPolarCameraScanner, decodePolarFrame, type Scanner } from '../src/index.js';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const payload = $<HTMLTextAreaElement>('payload');
@@ -8,6 +8,10 @@ const preview = $<HTMLDivElement>('preview');
 const status = $<HTMLDivElement>('status');
 let current = '';
 let scanner: Scanner | null = null;
+
+function ensureCurrent() {
+  if (current !== payload.value.trim()) generated();
+}
 
 function generated() {
   const value = payload.value.trim();
@@ -22,8 +26,22 @@ function generated() {
   } else {
     preview.innerHTML = renderPolarSvg(value, { size: 800, mark: mark.value.trim() });
   }
-  status.textContent = 'Encoded in one outer dotted track and the particle cloud. Use the AsterHalo scanner to read it.';
+  status.textContent = 'Code ready. Use Scan view and Full screen to show it to a camera.';
 }
+
+const scene = $<HTMLDivElement>('scene');
+function setScanView(enabled: boolean) {
+  scene.classList.toggle('scan-flat', enabled);
+  $<HTMLButtonElement>('studio').setAttribute('aria-pressed', String(!enabled));
+  $<HTMLButtonElement>('flat').setAttribute('aria-pressed', String(enabled));
+}
+$('studio').addEventListener('click', () => setScanView(false));
+$('flat').addEventListener('click', () => setScanView(true));
+$('present').addEventListener('click', async () => {
+  setScanView(true);
+  try { await scene.requestFullscreen(); }
+  catch (error) { report(error); }
+});
 
 function report(error: unknown) { status.textContent = error instanceof Error ? error.message : 'Something went wrong'; }
 function download(blob: Blob, name: string) {
@@ -53,22 +71,22 @@ async function png(svg: string): Promise<Blob> {
 
 $('generate').addEventListener('click', () => { try { generated(); } catch (error) { report(error); } });
 motion.addEventListener('change', () => { try { generated(); } catch (error) { report(error); } });
-$('svg').addEventListener('click', () => { try { if (!current) generated(); download(new Blob([renderPolarSvg(current, { size: 800, mark: mark.value.trim() })], { type: 'image/svg+xml' }), 'asterhalo-polar.svg'); } catch (error) { report(error); } });
-$('png').addEventListener('click', async () => { try { if (!current) generated(); download(await png(renderPolarSvg(current, { size: 800, mark: mark.value.trim() })), 'asterhalo-polar.png'); } catch (error) { report(error); } });
+$('svg').addEventListener('click', () => { try { ensureCurrent(); download(new Blob([renderPolarSvg(current, { size: 800, mark: mark.value.trim() })], { type: 'image/svg+xml' }), 'asterhalo-polar.svg'); } catch (error) { report(error); } });
+$('png').addEventListener('click', async () => { try { ensureCurrent(); download(await png(renderPolarSvg(current, { size: 800, mark: mark.value.trim() })), 'asterhalo-polar.png'); } catch (error) { report(error); } });
 $('html').addEventListener('click', () => {
   try {
-    if (!current) generated();
+    ensureCurrent();
     download(new Blob([packagePolarAnimatedHtml(current, { size: 800, mark: mark.value.trim() })], { type: 'text/html' }), 'asterhalo-polar-live.html');
   } catch (error) { report(error); }
 });
-$('copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(current || payload.value.trim()); status.textContent = 'Payload copied'; } catch (error) { report(error); } });
+$('copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(payload.value.trim()); status.textContent = 'Payload copied'; } catch (error) { report(error); } });
 $('scan').addEventListener('click', async () => {
   const button = $<HTMLButtonElement>('scan');
   const video = $<HTMLVideoElement>('camera');
   const result = $<HTMLDivElement>('scan-result');
   if (scanner) {
     scanner.stop(); scanner = null;
-    button.textContent = 'Scan with AsterHalo camera';
+    button.textContent = 'Open camera';
     video.hidden = true;
     return;
   }
@@ -81,5 +99,25 @@ $('scan').addEventListener('click', async () => {
     button.textContent = 'Stop camera';
     result.textContent = 'Show the full circle clearly in the camera frame.';
   } catch (error) { report(error); }
+});
+$<HTMLInputElement>('scan-image').addEventListener('change', async event => {
+  const input = event.currentTarget as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  const result = $<HTMLDivElement>('scan-result');
+  try {
+    const image = await createImageBitmap(file);
+    const scale = Math.min(1, 1920 / Math.max(image.width, image.height));
+    const width = Math.round(image.width * scale), height = Math.round(image.height * scale);
+    const canvas = document.createElement('canvas');
+    canvas.width = width; canvas.height = height;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) throw new Error('Image reader unavailable');
+    context.drawImage(image, 0, 0, width, height);
+    image.close();
+    const decoded = decodePolarFrame(context.getImageData(0, 0, width, height).data, width, height);
+    result.textContent = decoded ? `Read: ${decoded.payload}` : 'Could not read this image. Show the complete code larger and sharper.';
+  } catch (error) { report(error); }
+  input.value = '';
 });
 try { generated(); } catch (error) { report(error); }

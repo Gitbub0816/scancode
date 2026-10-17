@@ -1,7 +1,7 @@
 import { decodePolarBits, getPolarSlots } from './polar.js';
 
 interface Dot { x: number; y: number; area: number }
-interface Waypoint { x: number; y: number; score: number }
+interface Waypoint { x: number; y: number; score: number; spacing: number }
 
 export interface PolarFrameResult {
   payload: string;
@@ -17,10 +17,12 @@ function luminance(rgba: ArrayLike<number>, width: number, x: number, y: number)
 }
 
 /** Locate unusually large, bright particles rather than adding separate finder shapes. */
-function markerDots(rgba: ArrayLike<number>, width: number, height: number): Dot[] {
+function markerDots(rgba: ArrayLike<number>, width: number, height: number, threshold: number): Dot[] {
   const light = new Uint8Array(width * height);
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-    light[y * width + x] = luminance(rgba, width, x, y) > 205 ? 1 : 0;
+    const p = (y * width + x) * 4;
+    const r = Number(rgba[p]), g = Number(rgba[p + 1]), b = Number(rgba[p + 2]);
+    light[y * width + x] = r > threshold && g > threshold && b > threshold && Math.max(r, g, b) - Math.min(r, g, b) < 68 ? 1 : 0;
   }
   const seen = new Uint8Array(light.length), queue = new Int32Array(light.length), dots: Dot[] = [];
   for (let start = 0; start < light.length; start++) {
@@ -41,10 +43,10 @@ function markerDots(rgba: ArrayLike<number>, width: number, height: number): Dot
       }
     }
     const bw = maxX - minX + 1, bh = maxY - minY + 1;
-    if (area < 11 || area > 130 || bw < 3 || bh < 3 || bw > 18 || bh > 18 || bw / bh < .55 || bw / bh > 1.8) continue;
+    if (area < 3 || area > 130 || bw < 2 || bh < 2 || bw > 18 || bh > 18 || bw / bh < .55 || bw / bh > 1.8) continue;
     dots.push({ x: sx / area, y: sy / area, area });
   }
-  return dots.sort((a, b) => b.area - a.area).slice(0, 180);
+  return dots.sort((a, b) => b.area - a.area).slice(0, 96);
 }
 
 function waypointCandidates(dots: Dot[]): Waypoint[] {
@@ -54,7 +56,7 @@ function waypointCandidates(dots: Dot[]): Waypoint[] {
     const near: Dot[] = [];
     for (const dot of dots) {
       const d = Math.hypot(dot.x - m.x, dot.y - m.y);
-      if (d >= 5 && d <= 23 && Math.max(dot.area, m.area) / Math.min(dot.area, m.area) < 2.6) near.push(dot);
+      if (d >= 3 && d <= 23 && Math.max(dot.area, m.area) / Math.min(dot.area, m.area) < 2.6) near.push(dot);
     }
     for (let i = 0; i < near.length; i++) for (let j = i + 1; j < near.length; j++) {
       const a = near[i], b = near[j];
@@ -66,10 +68,10 @@ function waypointCandidates(dots: Dot[]): Waypoint[] {
       if (offset > Math.max(2.6, .24 * Math.max(da, db))) continue;
       const x = (a.x + m.x + b.x) / 3, y = (a.y + m.y + b.y) / 3;
       if (found.some(w => Math.hypot(w.x - x, w.y - y) < 5)) continue;
-      found.push({ x, y, score: a.area + m.area + b.area - offset * 2 });
+      found.push({ x, y, score: a.area + m.area + b.area - offset * 2, spacing: (da + db) / 2 });
     }
   }
-  return found.sort((a, b) => b.score - a.score).slice(0, 24);
+  return found.sort((a, b) => b.score - a.score).slice(0, 16);
 }
 
 function sample(rgba: ArrayLike<number>, width: number, height: number, a: Waypoint, b: Waypoint, q: number, offsetX: number, offsetY: number): string {
@@ -78,7 +80,7 @@ function sample(rgba: ArrayLike<number>, width: number, height: number, a: Waypo
   const sizeX = chord / (.42 * Math.SQRT2), sizeY = sizeX * q;
   const cx = (a.x + b.x) / 2 - sin * chord * q / 2 + offsetX;
   const cy = (a.y + b.y) / 2 + cos * chord * q / 2 + offsetY;
-  const bits = new Uint8Array(2040), slots = getPolarSlots();
+  const slots = getPolarSlots(), bits = new Uint8Array(slots.length);
   for (let i = 0; i < bits.length; i++) {
     const slot = slots[i], xx = (slot.x - .5) * sizeX, yy = (slot.y - .5) * sizeY;
     const x = Math.round(cx + xx * cos - yy * sin), y = Math.round(cy + xx * sin + yy * cos);
@@ -93,18 +95,22 @@ export function decodePolarFrame(rgba: ArrayLike<number>, width: number, height:
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 200 || height < 200 || rgba.length < width * height * 4) {
     throw new RangeError('expected a full RGBA camera frame of at least 200 by 200 pixels');
   }
-  const waypoints = waypointCandidates(markerDots(rgba, width, height));
   const ratios = [1, .66, .662, .75, .8, .9, 1.1, ...Array.from({ length: 61 }, (_, i) => .6 + i * .01)];
   const offsets = [[0, 0], [0, .5], [0, -.5], [-.5, 0], [.5, 0], [-.5, -.5], [.5, .5], [-.5, .5], [.5, -.5]];
+  for (const threshold of [185, 170]) {
+  const waypoints = waypointCandidates(markerDots(rgba, width, height, threshold));
   for (let i = 0; i < waypoints.length; i++) for (let j = i + 1; j < waypoints.length; j++) {
     const a = waypoints[i], b = waypoints[j], chord = Math.hypot(a.x - b.x, a.y - b.y);
     if (chord < 90 || chord > Math.max(width, height) * .9) continue;
+    const spacingRatio = chord / ((a.spacing + b.spacing) / 2);
+    if (spacingRatio < 32 || spacingRatio > 78) continue;
     for (const [left, right] of [[a, b], [b, a]]) for (const q of ratios) for (const [offsetX, offsetY] of offsets) {
       try {
         const payload = sample(rgba, width, height, left, right, q, offsetX, offsetY);
         return { payload, waypoints: [{ x: left.x, y: left.y }, { x: right.x, y: right.y }], symbolSize: chord / (.42 * Math.SQRT2) };
       } catch { /* Try the next geometric hypothesis. */ }
     }
+  }
   }
   return null;
 }

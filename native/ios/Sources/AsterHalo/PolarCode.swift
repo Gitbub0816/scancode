@@ -44,18 +44,18 @@ private struct GF256 {
 }
 
 private struct MarkerDot { let x: Double; let y: Double; let area: Int }
-private struct Waypoint { let x: Double; let y: Double; let score: Double }
+private struct Waypoint { let x: Double; let y: Double; let score: Double; let spacing: Double }
 
 public enum AsterHaloPolar {
-    public static let payloadLimit = 214
-    public static let bitCount = 2040
+    public static let payloadLimit = 87
+    public static let bitCount = 1024
     public static let slots: [PolarSlot] = makeSlots()
     private static let gf = GF256()
 
     private static func makeSlots() -> [PolarSlot] {
         var inner: [PolarSlot] = [], cells: [String: [PolarSlot]] = [:]
         var placement = Random32(0x716ca2b5)
-        while inner.count < bitCount - 512 {
+        while inner.count < bitCount - 256 {
             let angle = placement.unit() * 2 * Double.pi
             let radial = placement.unit()
             let radius = sqrt(0.14 * 0.14 + radial * (0.305 * 0.305 - 0.14 * 0.14))
@@ -77,8 +77,8 @@ public enum AsterHaloPolar {
         let ranges = [(0.0, m1 - gap), (m1 + gap, m2 - gap), (m2 + gap, 2 * Double.pi)]
         let total = ranges.reduce(0.0) { $0 + $1.1 - $1.0 }
         var outer: [PolarSlot] = []
-        for i in 0..<512 {
-            var t = (Double(i) + 0.5) * total / 512
+        for i in 0..<256 {
+            var t = (Double(i) + 0.5) * total / 256
             var angle = 0.0
             for (a, b) in ranges {
                 if t < b - a { angle = a + t; break }
@@ -116,12 +116,12 @@ public enum AsterHaloPolar {
             generator = next
         }
         var working = data + [Int](repeating: 0, count: 32)
-        for i in 0..<223 {
+        for i in 0..<96 {
             let coefficient = working[i]
             if coefficient == 0 { continue }
             for j in generator.indices { working[i + j] ^= gf.multiply(coefficient, generator[j]) }
         }
-        return data + Array(working[223..<255])
+        return data + Array(working[96..<128])
     }
 
     public static func encodeBits(_ payload: String) throws -> [UInt8] {
@@ -129,14 +129,14 @@ public enum AsterHaloPolar {
         let utf8 = Array(payload.utf8)
         guard utf8.count <= payloadLimit else { throw PolarCodeError.payloadTooLong }
         let crc = crc32(utf8)
-        var data = [Int](repeating: 0, count: 223)
-        data[0] = 0x50; data[1] = 0x43; data[2] = 2
+        var data = [Int](repeating: 0, count: 96)
+        data[0] = 0x50; data[1] = 0x43; data[2] = 3
         data[3] = utf8.count >> 8; data[4] = utf8.count & 255
         data[5] = Int((crc >> 24) & 255); data[6] = Int((crc >> 16) & 255)
         data[7] = Int((crc >> 8) & 255); data[8] = Int(crc & 255)
         for i in utf8.indices { data[9 + i] = Int(utf8[i]) }
         var pad = Random32(0x759e2361)
-        for i in (9 + utf8.count)..<223 { data[i] = Int(pad.next() & 255) }
+        for i in (9 + utf8.count)..<96 { data[i] = Int(pad.next() & 255) }
         let code = parity(data)
         var mask = Random32(0x2d943fa7)
         return (0..<bitCount).map { i in
@@ -172,9 +172,9 @@ public enum AsterHaloPolar {
         }
         guard length > 0 && length <= 16 else { throw PolarCodeError.errorCorrection }
         var positions: [Int] = [], powers: [Int] = []
-        for p in 0..<255 {
-            let power = gf.power(254 - p)
-            let inverse = gf.power(-(254 - p))
+        for p in 0..<128 {
+            let power = gf.power(127 - p)
+            let inverse = gf.power(-(127 - p))
             var value = 0
             for i in stride(from: length, through: 0, by: -1) { value = gf.multiply(value, inverse) ^ locator[i] }
             if value == 0 { positions.append(p); powers.append(power) }
@@ -206,11 +206,11 @@ public enum AsterHaloPolar {
 
     public static func decodeBits(_ bits: [UInt8]) throws -> String {
         guard bits.count == bitCount, bits.allSatisfy({ $0 <= 1 }) else { throw PolarCodeError.invalidBits }
-        var data = [Int](repeating: 0, count: 255)
+        var data = [Int](repeating: 0, count: 128)
         var mask = Random32(0x2d943fa7)
         for i in bits.indices { data[i >> 3] |= (Int(bits[i]) ^ Int(mask.next() & 1)) << (7 - (i & 7)) }
         try correct(&data)
-        guard data[0] == 0x50 && data[1] == 0x43 && data[2] == 2 else { throw PolarCodeError.invalidPayload }
+        guard data[0] == 0x50 && data[1] == 0x43 && data[2] == 3 else { throw PolarCodeError.invalidPayload }
         let length = (data[3] << 8) | data[4]
         guard length > 0 && length <= payloadLimit else { throw PolarCodeError.invalidPayload }
         let utf8 = data[9..<(9 + length)].map(UInt8.init)
@@ -239,10 +239,12 @@ public enum AsterHaloPolar {
         return (Int(bytes[p]) * 54 + Int(bytes[p + 1]) * 183 + Int(bytes[p + 2]) * 19) >> 8
     }
 
-    private static func markerDots(_ bytes: [UInt8], _ width: Int, _ height: Int) -> [MarkerDot] {
+    private static func markerDots(_ bytes: [UInt8], _ width: Int, _ height: Int, threshold: Int) -> [MarkerDot] {
         var light = [UInt8](repeating: 0, count: width * height)
         for y in 0..<height { for x in 0..<width {
-            light[y * width + x] = luminance(bytes, width, x, y) > 205 ? 1 : 0
+            let p = (y * width + x) * 4
+            let r = Int(bytes[p]), g = Int(bytes[p + 1]), b = Int(bytes[p + 2])
+            light[y * width + x] = r > threshold && g > threshold && b > threshold && max(r,g,b) - min(r,g,b) < 68 ? 1 : 0
         }}
         var seen = [UInt8](repeating: 0, count: light.count)
         var queue = [Int](repeating: 0, count: light.count)
@@ -268,10 +270,10 @@ public enum AsterHaloPolar {
             }
             let bw = maxX - minX + 1, bh = maxY - minY + 1
             let ratio = Double(bw) / Double(bh)
-            if area < 11 || area > 130 || bw < 3 || bh < 3 || bw > 18 || bh > 18 || ratio < 0.55 || ratio > 1.8 { continue }
+            if area < 3 || area > 130 || bw < 2 || bh < 2 || bw > 18 || bh > 18 || ratio < 0.55 || ratio > 1.8 { continue }
             dots.append(MarkerDot(x: Double(sumX) / Double(area), y: Double(sumY) / Double(area), area: area))
         }
-        return Array(dots.sorted(by: { $0.area > $1.area }).prefix(180))
+        return Array(dots.sorted(by: { $0.area > $1.area }).prefix(96))
     }
 
     private static func waypointCandidates(_ dots: [MarkerDot]) -> [Waypoint] {
@@ -279,7 +281,7 @@ public enum AsterHaloPolar {
         for middle in dots {
             let near = dots.filter { dot in
                 let d = hypot(dot.x - middle.x, dot.y - middle.y)
-                return d >= 5 && d <= 23 && Double(max(dot.area, middle.area)) / Double(min(dot.area, middle.area)) < 2.6
+                return d >= 3 && d <= 23 && Double(max(dot.area, middle.area)) / Double(min(dot.area, middle.area)) < 2.6
             }
             if near.count < 2 { continue }
             for i in 0..<(near.count - 1) { for j in (i + 1)..<near.count {
@@ -293,10 +295,10 @@ public enum AsterHaloPolar {
                 if offset > max(2.6, 0.24 * max(da, db)) { continue }
                 let x = (a.x + middle.x + b.x) / 3, y = (a.y + middle.y + b.y) / 3
                 if found.contains(where: { hypot($0.x - x, $0.y - y) < 5 }) { continue }
-                found.append(Waypoint(x: x, y: y, score: Double(a.area + middle.area + b.area) - offset * 2))
+                found.append(Waypoint(x: x, y: y, score: Double(a.area + middle.area + b.area) - offset * 2, spacing: (da + db) / 2))
             }}
         }
-        return Array(found.sorted(by: { $0.score > $1.score }).prefix(24))
+        return Array(found.sorted(by: { $0.score > $1.score }).prefix(16))
     }
 
     private static func sample(_ bytes: [UInt8], _ width: Int, _ height: Int,
@@ -323,17 +325,21 @@ public enum AsterHaloPolar {
     public static func decode(_ image: CGImage) -> String? {
         guard let bytes = try? rgba(image) else { return nil }
         let width = image.width, height = image.height
-        let waypoints = waypointCandidates(markerDots(bytes, width, height))
         let ratios: [Double] = [1, 0.66, 0.662, 0.75, 0.8, 0.9, 1.1] + (0...60).map { 0.6 + Double($0) * 0.01 }
         let offsets: [(Double, Double)] = [(0,0),(0,0.5),(0,-0.5),(-0.5,0),(0.5,0),(-0.5,-0.5),(0.5,0.5),(-0.5,0.5),(0.5,-0.5)]
-        if waypoints.count < 2 { return nil }
+        for threshold in [185, 170] {
+        let waypoints = waypointCandidates(markerDots(bytes, width, height, threshold: threshold))
+        if waypoints.count < 2 { continue }
         for i in 0..<(waypoints.count - 1) { for j in (i + 1)..<waypoints.count {
             let a = waypoints[i], b = waypoints[j], chord = hypot(a.x - b.x, a.y - b.y)
             if chord < 90 || chord > Double(max(width, height)) * 0.9 { continue }
+            let spacingRatio = chord / ((a.spacing + b.spacing) / 2)
+            if spacingRatio < 32 || spacingRatio > 78 { continue }
             for (left, right) in [(a,b),(b,a)] { for q in ratios { for (ox, oy) in offsets {
                 if let value = try? sample(bytes, width, height, left, right, q, ox, oy) { return value }
             }}}
         }}
+        }
         return nil
     }
 
@@ -354,45 +360,42 @@ public enum AsterHaloPolar {
             context.fillEllipse(in: CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2))
         }
         func ridge(_ a: Double) -> Double {
-            0.219 + 0.018 * sin(5 * a + 0.65) + 0.012 * cos(9 * a - 0.9) + 0.005 * sin(17 * a + 0.35)
+            0.235 + 0.012 * sin(5 * a + 0.65) + 0.008 * cos(9 * a - 0.9) + 0.004 * sin(17 * a + 0.35)
         }
         context.setFillColor(color(4, 12, 22)); context.fill(CGRect(x: 0, y: 0, width: size, height: size))
         circle(s / 2, s / 2, s * 0.475, color(16, 35, 56))
-        let palette = [color(81,233,245), color(244,95,175), color(255,208,120), color(178,160,255)]
+        let palette = [color(81,233,245), color(244,95,175), color(255,208,120), color(88,141,213)]
         var random = Random32(0x6f0b91e2)
-        for i in 0..<36000 {
+        for i in 0..<30000 {
             let a = random.unit() * 2 * Double.pi
             let v = random.unit() * 2 * Double.pi
-            let cross = sqrt(random.unit()) * 0.082
-            let fold = 0.012 * sin(13 * a + 2.2 * v) + 0.006 * cos(23 * a - 3 * v)
+            let cross = sqrt(random.unit()) * 0.075
+            let fold = 0.004 * sin(13 * a + 2.2 * v) + 0.002 * cos(23 * a - 3 * v)
             let r = ridge(a) + cross * cos(v) + fold
             let depth = cross * sin(v), angle = a + 0.011 * sin(7 * a + v)
             let x = s * (0.5 + r * cos(angle)), y = s * (0.5 + r * sin(angle) + depth * 0.48)
             let band = min(3, Int(floor((sin(2.9 * a + 19 * r + v * 0.36) + 1) * 1.999)))
             let light = 0.5 + 0.5 * max(0, sin(6 * a + v + r * 29))
-            let opacity = i % 89 == 0 ? 0.96 : 0.48 + light * 0.47
+            let opacity = i % 89 == 0 ? 0.96 : 0.3 + light * 0.42
             let dot = i % 89 == 0 ? 1.75 : i % 13 == 0 ? 1.12 : 0.58
             context.setAlpha(opacity)
             circle(x, y, dot * s / 800, palette[band])
         }
         context.setAlpha(1)
-        for slot in slots where !slot.ring {
-            circle(slot.x * s, slot.y * s, 1.85 * s / 800, color(16, 34, 53))
-        }
-        let dataColors = [color(163,238,242), color(255,180,221), color(255,225,161), color(203,195,255)]
+        let dataColors = [color(163,238,242), color(255,180,221), color(255,225,161), color(145,185,227)]
         for (i, slot) in slots.enumerated() {
             let x = slot.x * s, y = slot.y * s
             if bits[i] == 1 {
                 let angle = atan2(slot.y - 0.5, slot.x - 0.5)
                 let band = min(3, Int(floor((sin(angle * 2.9 + Double(i) * 0.37) + 1) * 1.999)))
-                circle(x, y, (slot.ring ? 1.7 : 1.78) * s / 800, slot.ring ? color(195,233,233) : dataColors[band])
+                circle(x, y, (slot.ring ? 2.4 : 2.5) * s / 800, slot.ring ? color(195,233,233) : dataColors[band])
             } else {
-                circle(x, y, (slot.ring ? 1.275 : 1.335) * s / 800, slot.ring ? color(35,57,75) : color(38,60,80))
+                circle(x, y, (slot.ring ? 1.8 : 2.65) * s / 800, slot.ring ? color(35,57,75) : color(32,57,74))
             }
         }
         for base in [5 * Double.pi / 4, 7 * Double.pi / 4] { for offset in [-0.029, 0.0, 0.029] {
             let angle = base + offset
-            circle(s * (0.5 + 0.42 * cos(angle)), s * (0.5 + 0.42 * sin(angle)), 3.05 * s / 800, color(214,248,245))
+            circle(s * (0.5 + 0.42 * cos(angle)), s * (0.5 + 0.42 * sin(angle)), 3.65 * s / 800, color(214,248,245))
         }}
         context.setStrokeColor(color(112,214,226)); context.setAlpha(0.45)
         context.setLineWidth(1.5 * CGFloat(s) / 800)

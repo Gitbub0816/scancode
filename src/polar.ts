@@ -14,11 +14,11 @@ export interface PolarSlot {
   readonly ring: boolean;
 }
 
-const DATA_BYTES = 223;
+const DATA_BYTES = 96;
 const PARITY_BYTES = 32;
 const CODE_BYTES = DATA_BYTES + PARITY_BYTES;
 const BIT_COUNT = CODE_BYTES * 8;
-const OUTER_BITS = 512;
+const OUTER_BITS = 256;
 const HEADER_BYTES = 9;
 const MAX_PAYLOAD_BYTES = DATA_BYTES - HEADER_BYTES;
 const encoder = new TextEncoder();
@@ -94,13 +94,13 @@ const SLOTS = slotMap();
 /** Shared geometry for the encoder and camera locator. */
 export function getPolarSlots(): readonly PolarSlot[] { return SLOTS; }
 
-/** Encodes UTF-8 bytes directly into a circular particle matrix with RS(255,223). */
+/** Encodes UTF-8 bytes directly into a circular particle matrix with RS(128,96). */
 export function encodePolar(payload: string): PolarCode {
   if (typeof payload !== 'string' || !payload) throw new TypeError('payload must be a non-empty string');
   const utf8 = encoder.encode(payload);
   if (utf8.length > MAX_PAYLOAD_BYTES) throw new RangeError(`polar payload exceeds ${MAX_PAYLOAD_BYTES} UTF-8 bytes; use a short redirect URL`);
   const data = new Int32Array(CODE_BYTES);
-  data[0] = 0x50; data[1] = 0x43; data[2] = 2;
+  data[0] = 0x50; data[1] = 0x43; data[2] = 3;
   data[3] = utf8.length >>> 8; data[4] = utf8.length & 255;
   const crc = crc32(utf8);
   data[5] = crc >>> 24; data[6] = (crc >>> 16) & 255;
@@ -127,7 +127,7 @@ export function decodePolarBits(bits: ArrayLike<number>): string {
   }
   try { new ReedSolomonDecoder(GenericGF.QR_CODE_FIELD_256).decode(data, PARITY_BYTES); }
   catch { throw new Error('polar error correction failed'); }
-  if (data[0] !== 0x50 || data[1] !== 0x43 || data[2] !== 2) throw new Error('polar format marker is invalid');
+  if (data[0] !== 0x50 || data[1] !== 0x43 || data[2] !== 3) throw new Error('polar format marker is invalid');
   const length = (data[3] << 8) | data[4];
   if (length < 1 || length > MAX_PAYLOAD_BYTES) throw new Error('polar payload length is invalid');
   const utf8 = Uint8Array.from(data.slice(HEADER_BYTES, HEADER_BYTES + length));
@@ -178,21 +178,20 @@ export function renderPolarSvg(input: string | PolarCode, options: PolarRenderOp
   if (!Number.isInteger(size) || size < 600 || size > 4096) throw new RangeError('size must be 600-4096');
   const cx = size / 2;
   const scale = size / 800;
-  const colors = ['#51e9f5', '#f45faf', '#ffd078', '#b2a0ff'];
-  const bright: string[] = [], dim: string[] = [], cutouts: string[] = [];
+  const colors = ['#51e9f5', '#f45faf', '#ffd078', '#588dd5'];
+  const bright: string[] = [], dim: string[] = [];
   for (let i = 0; i < code.bits.length; i++) {
     const slot = code.slots[i];
     const x = (slot.x * size).toFixed(2), y = (slot.y * size).toFixed(2);
-    const radius = (slot.ring ? 1.7 : 1.78) * scale;
-    const particleColors = ['#a3eef2', '#ffb4dd', '#ffe1a1', '#cbc3ff'];
+    const radius = (slot.ring ? 2.4 : 2.5) * scale;
+    const particleColors = ['#a3eef2', '#ffb4dd', '#ffe1a1', '#91b9e3'];
     const color = slot.ring ? '#c3e9e9' : particleColors[Math.floor((Math.sin(Math.atan2(slot.y - .5, slot.x - .5) * 2.9 + i * .37) + 1) * 1.999)];
-    if (!slot.ring) cutouts.push(`<circle cx="${x}" cy="${y}" r="${(1.85 * scale).toFixed(2)}" fill="#102235"/>`);
     if (code.bits[i]) bright.push(`<circle cx="${x}" cy="${y}" r="${radius.toFixed(2)}" fill="${color}"/>`);
-    else dim.push(`<circle cx="${x}" cy="${y}" r="${(radius * .75).toFixed(2)}" fill="${slot.ring ? '#23394b' : '#263c50'}"/>`);
+    else dim.push(`<circle cx="${x}" cy="${y}" r="${(slot.ring ? radius * .75 : 2.65 * scale).toFixed(2)}" fill="${slot.ring ? '#23394b' : '#20394a'}"/>`);
   }
   const wisps: string[] = [];
   const filaments: string[] = [];
-  const ridge = (a: number) => .219 + .018 * Math.sin(5 * a + .65) + .012 * Math.cos(9 * a - .9) + .005 * Math.sin(17 * a + .35);
+  const ridge = (a: number) => .235 + .012 * Math.sin(5 * a + .65) + .008 * Math.cos(9 * a - .9) + .004 * Math.sin(17 * a + .35);
   for (let strand = 0; strand < 104; strand++) {
     const points: string[] = [];
     const start = strand * 2.399963229728653;
@@ -214,11 +213,11 @@ export function renderPolarSvg(input: string | PolarCode, options: PolarRenderOp
   const vapor: string[][] = [[], [], [], []];
   const sparks: string[] = [];
   const next = random(0x6f0b91e2);
-  for (let i = 0; i < 36000; i++) {
+  for (let i = 0; i < 30000; i++) {
     const a = next() / 0x100000000 * Math.PI * 2;
     const v = next() / 0x100000000 * Math.PI * 2;
-    const cross = Math.sqrt(next() / 0x100000000) * .082;
-    const fold = .012 * Math.sin(13 * a + 2.2 * v) + .006 * Math.cos(23 * a - 3 * v);
+    const cross = Math.sqrt(next() / 0x100000000) * .075;
+    const fold = .004 * Math.sin(13 * a + 2.2 * v) + .002 * Math.cos(23 * a - 3 * v);
     const r = ridge(a) + cross * Math.cos(v) + fold;
     const depth = cross * Math.sin(v);
     const angle = a + .011 * Math.sin(7 * a + v);
@@ -227,18 +226,18 @@ export function renderPolarSvg(input: string | PolarCode, options: PolarRenderOp
     const band = Math.min(3, Math.floor((Math.sin(2.9 * a + 19 * r + v * .36) + 1) * 1.999));
     const light = .5 + .5 * Math.max(0, Math.sin(6 * a + v + r * 29));
     const dot = ((i % 89 === 0 ? 1.75 : i % 13 === 0 ? 1.12 : .58) * scale).toFixed(2);
-    const opacity = (i % 89 === 0 ? .96 : .48 + light * .47).toFixed(2);
+    const opacity = (i % 89 === 0 ? .96 : .3 + light * .42).toFixed(2);
     vapor[band].push(`<circle cx="${x}" cy="${y}" r="${dot}" fill="${colors[band]}" opacity="${opacity}"/>`);
     if (i % 89 === 0) sparks.push(`<circle cx="${x}" cy="${y}" r="${(5.4 * scale).toFixed(2)}" fill="${colors[band]}" opacity=".25"/>`);
   }
   const waypoints = [5 * Math.PI / 4, 7 * Math.PI / 4].flatMap(base => [-.029, 0, .029].map(offset => {
     const angle = base + offset;
-    return `<circle cx="${(size * (.5 + .42 * Math.cos(angle))).toFixed(2)}" cy="${(size * (.5 + .42 * Math.sin(angle))).toFixed(2)}" r="${(3.05 * scale).toFixed(2)}" fill="#d6f8f5"/>`;
+    return `<circle cx="${(size * (.5 + .42 * Math.cos(angle))).toFixed(2)}" cy="${(size * (.5 + .42 * Math.sin(angle))).toFixed(2)}" r="${(3.65 * scale).toFixed(2)}" fill="#d6f8f5"/>`;
   })).join('');
   const mark = escapeXml(Array.from(options.mark ?? '').slice(0, 3).join(''));
   const icon = mark ? `<text x="${cx}" y="${cx}" text-anchor="middle" dominant-baseline="middle" font-family="system-ui,sans-serif" font-size="${(29 * scale).toFixed(1)}" font-weight="700" fill="#e4fcff">${mark}</text>` : `<g transform="translate(${cx} ${cx}) scale(${scale})" fill="none" stroke="#e9fcff" stroke-linecap="round" stroke-linejoin="round"><path d="M-13 -27 L-2 6 L22 -5 M-2 6 L-20 23 M-2 6 L19 23" stroke-width="6"/><circle cx="-20" cy="23" r="6" stroke-width="4"/><circle cx="22" cy="-5" r="5" stroke-width="4"/></g>`;
   const motion = options.animated ? `<style>.cloud-layer,.haze,.filaments{transform-origin:50% 50%}.cloud-0{animation:cloud-a 8s ease-in-out infinite}.cloud-1{animation:cloud-b 11s ease-in-out infinite}.cloud-2{animation:cloud-a 13s ease-in-out infinite reverse}.cloud-3{animation:cloud-b 9s ease-in-out infinite reverse}.haze{animation:cloud-b 15s ease-in-out infinite}.filaments{animation:cloud-a 12s ease-in-out infinite}@keyframes cloud-a{0%,100%{transform:rotate(-2deg) scale(.985);opacity:.75}50%{transform:rotate(3deg) scale(1.015);opacity:1}}@keyframes cloud-b{0%,100%{transform:rotate(2deg) scale(1.01);opacity:1}50%{transform:rotate(-3deg) scale(.985);opacity:.72}}@media(prefers-reduced-motion:reduce){.cloud-layer,.haze,.filaments{animation:none}}</style>` : '';
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="AsterHalo experimental polar code"><defs><radialGradient id="bg"><stop stop-color="#1c3447"/><stop offset=".58" stop-color="#102031"/><stop offset="1" stop-color="#030b15"/></radialGradient><radialGradient id="aura"><stop stop-color="#1d3546" stop-opacity="0"/><stop offset=".48" stop-color="#894d91" stop-opacity=".18"/><stop offset=".78" stop-color="#17b9d0" stop-opacity=".14"/><stop offset="1" stop-color="#061422" stop-opacity="0"/></radialGradient><radialGradient id="void"><stop stop-color="#081524"/><stop offset=".55" stop-color="#0b1a2a"/><stop offset="1" stop-color="#0b1a2a" stop-opacity="0"/></radialGradient><filter id="soft"><feGaussianBlur stdDeviation="${(7 * scale).toFixed(1)}"/></filter><filter id="spark-glow"><feGaussianBlur stdDeviation="${(5 * scale).toFixed(1)}"/></filter><filter id="icon-glow"><feGaussianBlur stdDeviation="${(4 * scale).toFixed(1)}"/></filter></defs>${motion}<rect width="${size}" height="${size}" fill="url(#bg)"/><circle cx="${cx}" cy="${cx}" r="${(size * .475).toFixed(1)}" fill="#102338"/><circle cx="${cx}" cy="${cx}" r="${(size * .355).toFixed(1)}" fill="url(#aura)"/><g class="mist"><g class="haze" filter="url(#soft)" opacity=".76">${wisps.join('')}</g><g filter="url(#spark-glow)">${sparks.join('')}</g><g class="filaments">${filaments.join('')}</g>${vapor.map((layer, index) => `<g class="cloud-layer cloud-${index}">${layer.join('')}</g>`).join('')}</g><g>${cutouts.join('')}${dim.join('')}${bright.join('')}</g><circle cx="${cx}" cy="${cx}" r="${(size * .105).toFixed(1)}" fill="url(#void)"/><g filter="url(#icon-glow)" opacity=".85">${icon}</g>${icon}${waypoints}<circle cx="${cx}" cy="${cx}" r="${(size * .475).toFixed(1)}" fill="none" stroke="#70d6e2" stroke-opacity=".4" stroke-width="${(2 * scale).toFixed(1)}"/><circle cx="${cx}" cy="${cx}" r="${(size * .488).toFixed(1)}" fill="none" stroke="#d6fcff" stroke-opacity=".36" stroke-width="${(1.3 * scale).toFixed(1)}" stroke-dasharray="${(size * .15).toFixed(1)} ${(size * .034).toFixed(1)}"/></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="AsterHalo experimental polar code"><defs><radialGradient id="bg"><stop stop-color="#1c3447"/><stop offset=".58" stop-color="#102031"/><stop offset="1" stop-color="#030b15"/></radialGradient><radialGradient id="aura"><stop stop-color="#1d3546" stop-opacity="0"/><stop offset=".48" stop-color="#894d91" stop-opacity=".18"/><stop offset=".78" stop-color="#17b9d0" stop-opacity=".14"/><stop offset="1" stop-color="#061422" stop-opacity="0"/></radialGradient><radialGradient id="void"><stop stop-color="#081524"/><stop offset=".55" stop-color="#0b1a2a"/><stop offset="1" stop-color="#0b1a2a" stop-opacity="0"/></radialGradient><filter id="soft"><feGaussianBlur stdDeviation="${(7 * scale).toFixed(1)}"/></filter><filter id="spark-glow"><feGaussianBlur stdDeviation="${(5 * scale).toFixed(1)}"/></filter><filter id="icon-glow"><feGaussianBlur stdDeviation="${(4 * scale).toFixed(1)}"/></filter></defs>${motion}<rect width="${size}" height="${size}" fill="url(#bg)"/><circle cx="${cx}" cy="${cx}" r="${(size * .475).toFixed(1)}" fill="#102338"/><circle cx="${cx}" cy="${cx}" r="${(size * .355).toFixed(1)}" fill="url(#aura)"/><g class="mist"><g class="haze" filter="url(#soft)" opacity=".76">${wisps.join('')}</g><g filter="url(#spark-glow)">${sparks.join('')}</g><g class="filaments">${filaments.join('')}</g>${vapor.map((layer, index) => `<g class="cloud-layer cloud-${index}">${layer.join('')}</g>`).join('')}</g><g>${dim.join('')}${bright.join('')}</g><circle cx="${cx}" cy="${cx}" r="${(size * .105).toFixed(1)}" fill="url(#void)"/><g filter="url(#icon-glow)" opacity=".85">${icon}</g>${icon}${waypoints}<circle cx="${cx}" cy="${cx}" r="${(size * .475).toFixed(1)}" fill="none" stroke="#70d6e2" stroke-opacity=".4" stroke-width="${(2 * scale).toFixed(1)}"/><circle cx="${cx}" cy="${cx}" r="${(size * .488).toFixed(1)}" fill="none" stroke="#d6fcff" stroke-opacity=".36" stroke-width="${(1.3 * scale).toFixed(1)}" stroke-dasharray="${(size * .15).toFixed(1)} ${(size * .034).toFixed(1)}"/></svg>`;
 }
 
 /** Packages the same fixed data and independently flowing cloud for offline viewing. */

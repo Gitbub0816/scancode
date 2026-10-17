@@ -9,9 +9,9 @@ test('polar encoder carries exact Unicode and URL payloads in the one-row ring a
     'こんにちは 🌌 AsterHalo'
   ]) {
     const code = encodePolar(payload);
-    assert.equal(code.bits.length, 2040);
-    assert.equal(code.slots.filter(slot => slot.ring).length, 512);
-    assert.equal(code.slots.filter(slot => !slot.ring).length, 1528);
+    assert.equal(code.bits.length, 1024);
+    assert.equal(code.slots.filter(slot => slot.ring).length, 256);
+    assert.equal(code.slots.filter(slot => !slot.ring).length, 768);
     assert.equal(decodePolarBits(code.bits), payload);
   }
 });
@@ -64,6 +64,13 @@ test('aligned polar image survives compression, blur, and downscaling to 600px',
   }
 });
 
+test('waypoint scanner reads a camera-sized blurred symbol', async () => {
+  const payload = 'https://citeory.com/study-buddies/invite/aJ3BnnB12345';
+  const svg = Buffer.from(renderPolarSvg(payload, { size: 800 }));
+  const { data, info } = await sharp(svg).resize(400, 400).blur(.7).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  assert.equal(decodePolarFrame(data, info.width, info.height)?.payload, payload);
+});
+
 test('sampler reads a slightly rotated and rescaled frame with guide adjustment', async () => {
   const payload = 'https://example.org/invite/abc';
   const svg = Buffer.from(renderPolarSvg(payload, { size: 800 }));
@@ -76,7 +83,7 @@ test('sampler reads a slightly rotated and rescaled frame with guide adjustment'
 
 test('polar API rejects oversized data and malformed symbols', () => {
   assert.throws(() => encodePolar(''), /non-empty/);
-  assert.throws(() => encodePolar('x'.repeat(215)), /214 UTF-8/);
-  assert.throws(() => decodePolarBits(new Uint8Array(8)), /2040/);
+  assert.throws(() => encodePolar('x'.repeat(88)), /87 UTF-8/);
+  assert.throws(() => decodePolarBits(new Uint8Array(8)), /1024/);
   assert.throws(() => renderPolarSvg('x', { size: 100 }), /600-4096/);
 });

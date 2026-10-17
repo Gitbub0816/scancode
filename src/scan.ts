@@ -58,7 +58,9 @@ export async function startPolarCameraScanner(
   if (!Number.isFinite(interval) || interval < 100 || interval > 5000) throw new RangeError('intervalMs must be 100-5000');
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
-    video: options.deviceId ? { deviceId: { exact: options.deviceId } } : { facingMode: { ideal: 'environment' } }
+    video: options.deviceId
+      ? { deviceId: { exact: options.deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+      : { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
   });
   video.srcObject = stream;
   video.playsInline = true;
@@ -83,7 +85,7 @@ export async function startPolarCameraScanner(
   const attempt = () => {
     if (stopped) return;
     if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-      const frameScale = Math.min(1, 1200 / Math.max(video.videoWidth, video.videoHeight));
+      const frameScale = Math.min(1, 1920 / Math.max(video.videoWidth, video.videoHeight));
       const frameWidth = Math.round(video.videoWidth * frameScale);
       const frameHeight = Math.round(video.videoHeight * frameScale);
       if (canvas.width !== frameWidth || canvas.height !== frameHeight) {

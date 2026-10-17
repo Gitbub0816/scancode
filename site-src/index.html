@@ -3,100 +3,55 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#07101d">
-  <title>AsterHalo — Polar code prototype</title>
-  <meta name="description" content="Generate a custom circular particle code and download static SVG, PNG, or standalone animated HTML.">
+  <meta name="theme-color" content="#07131c">
+  <title>AsterHalo — a living circular code</title>
+  <meta name="description" content="Create, present, download, and scan an animated circular particle code.">
   <style>
-    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #e9f7fb; background: #070e19; }
-    * { box-sizing: border-box; }
-    body { margin: 0; background: radial-gradient(circle at 70% 16%, #18314a 0, #0c192b 28%, #070e19 63%); min-height: 100vh; }
-    header { max-width: 1260px; margin: auto; padding: 28px 32px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #ffffff1c; }
-    .brand { letter-spacing:.13em; font-size:15px; font-weight:800; color:#d7fbff; text-decoration:none; }
-    .brand span { color:#00f0ff; }
-    header nav { display:flex; gap:24px; font-size:13px; }
-    a { color:#a2dfe9; }
-    main { max-width:1260px; margin:auto; padding:64px 32px 80px; }
-    .eyebrow { color:#56dfea; letter-spacing:.16em; font-weight:800; text-transform:uppercase; font-size:11px; }
-    h1 { font-size:clamp(42px,6vw,78px); line-height:1.03; letter-spacing:-.055em; margin:16px 0; max-width:750px; }
-    h1 em { font-style:normal; background:linear-gradient(90deg,#61effb,#e38ad3); background-clip:text; color:transparent; }
-    .intro { color:#a7bacd; font-size:17px; max-width:600px; line-height:1.65; margin:0 0 40px; }
-    .workspace { display:grid; grid-template-columns:minmax(310px,440px) minmax(360px,1fr); gap:28px; align-items:stretch; }
-    .panel { background:#0e1c2fdd; border:1px solid #ffffff20; border-radius:22px; box-shadow:0 20px 60px #0005; }
-    .controls { padding:32px; }
-    h2 { margin:0 0 24px; font-size:19px; letter-spacing:-.02em; }
-    label { display:block; font-size:13px; font-weight:700; margin-bottom:9px; }
-    textarea, input { width:100%; border:1px solid #476078; border-radius:11px; background:#071220; color:#eef9ff; padding:13px 14px; font:inherit; outline:none; }
-    textarea:focus, input:focus { border-color:#42d9e8; box-shadow:0 0 0 3px #42d9e826; }
-    textarea { height:110px; resize:vertical; line-height:1.5; }
-    .hint { color:#91a8bc; font-size:12px; line-height:1.55; margin:9px 0 23px; }
-    .row { display:flex; gap:12px; align-items:center; }
-    .row > div { flex:1; }
-    button { cursor:pointer; border:0; font:inherit; }
-    .primary { background:linear-gradient(105deg,#00e2f2,#9cf4ff); color:#052334; border-radius:11px; font-weight:800; padding:14px 19px; width:100%; margin-top:25px; box-shadow:0 8px 24px #00e2f226; }
-    .primary:hover { filter:brightness(1.08); }
-    .secondary { color:#d9faff; background:#173049; border:1px solid #3d6c82; border-radius:10px; padding:12px 14px; }
-    .secondary:hover { background:#20405c; }
-    .switch { display:flex; align-items:center; gap:11px; margin-top:22px; color:#c3d4e0; font-size:13px; }
-    .switch input { width:auto; accent-color:#00e2f2; }
-    .downloads { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:28px; }
-    .downloads button { font-size:12px; }
-    .preview-panel { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:30px; min-height:560px; background:radial-gradient(circle,#1d3b51 0,#10263b 39%,#0b1728 69%); overflow:hidden; }
-    #preview { width:min(100%,510px)!important; height:auto!important; aspect-ratio:1; }
-    #preview iframe, #preview svg { display:block; width:100%; height:100%; border:0; }
-    #preview img { border-radius:16px; }
-    .caption { color:#9cb7c7; font-size:12px; text-align:center; margin:18px 0 0; }
-    .status { min-height:20px; color:#ffb5bf; font-size:12px; margin-top:12px; }
-    .scanner { margin-top:28px; padding:24px; }
-    .camera-wrap { position:relative; width:min(100%,500px); margin:18px auto 0; }
-    .camera-wrap:has(video[hidden]) { display:none; }
-    #camera { width:100%; aspect-ratio:1; object-fit:cover; border-radius:15px; background:#050d17; }
-    .guide { position:absolute; inset:5%; border:2px solid #a0eef0aa; border-radius:50%; pointer-events:none; }
-    #scan-result { color:#b8ecf0; font-size:13px; overflow-wrap:anywhere; margin-top:12px; }
-    footer { border-top:1px solid #ffffff1c; padding:28px 32px; color:#91a8bc; font-size:12px; max-width:1260px; margin:auto; display:flex; justify-content:space-between; gap:15px; flex-wrap:wrap; }
-    code { color:#bffaff; }
-    @media (max-width:850px) { .workspace { grid-template-columns:1fr; } main { padding-top:45px; } .preview-panel { min-height:0; } }
-    @media (max-width:500px) { header, main, footer { padding-left:18px; padding-right:18px; } .controls { padding:23px; } .downloads { grid-template-columns:1fr; } header nav { gap:12px; } }
+    :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e9f5f7;background:#07131c;--muted:#9fb8c2;--cyan:#8ceaf1;--line:#385361;--ease:cubic-bezier(.23,1,.32,1)}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;min-width:320px;background:radial-gradient(ellipse at 83% 4%,#254656 0,#112431 31%,#07131c 68%)}button,input,textarea{font:inherit}button{cursor:pointer}a{color:inherit}button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+    .topbar{height:76px;max-width:1500px;margin:auto;padding:0 clamp(20px,4vw,64px);display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #47708055}
+    .brand{font-size:15px;font-weight:850;letter-spacing:.1em;text-decoration:none;display:flex;align-items:center;gap:10px}.brand-mark{width:24px;height:24px;border:1.5px solid #b6f8f8;border-radius:50%;position:relative;box-shadow:0 0 12px #79eefa66}.brand-mark:after{content:"";position:absolute;inset:7px;border:2px solid #e6ffff;border-radius:50%}
+    nav{display:flex;align-items:center;gap:28px}nav a{font-size:13px;font-weight:650;text-decoration:none;color:#c1d6de;transition:color .18s ease}nav a:hover{color:white}
+    main{max-width:1500px;margin:auto;padding:0 clamp(20px,4vw,64px) 100px}.hero{display:grid;grid-template-columns:minmax(300px,390px) minmax(0,1fr);gap:clamp(30px,4vw,72px);align-items:center;min-height:calc(100svh - 76px);padding:42px 0 76px}
+    .intro{align-self:center}.edition{font-size:12px;font-weight:700;color:#9ddde4;letter-spacing:.08em;margin:0 0 24px}.intro h1{font-size:clamp(3.1rem,5vw,5.1rem);line-height:1.02;letter-spacing:-.035em;font-weight:680;text-wrap:balance;margin:0 0 27px;max-width:9ch}.intro h1 span{color:#9feef3}.intro>p:not(.edition){font-size:16px;line-height:1.65;color:#b9cbd2;max-width:37ch;margin:0 0 34px;text-wrap:pretty}
+    .composer{border-top:1px solid var(--line);padding-top:27px}.composer label{display:block;font-size:12px;font-weight:750;letter-spacing:.02em;margin:0 0 10px}.composer textarea,.composer input[type=text]{width:100%;background:#0c1e29;color:#effcff;border:1px solid #446273;border-radius:9px;padding:14px 15px;line-height:1.45;outline:none}.composer textarea{height:104px;resize:vertical;font-size:13px;overflow-wrap:anywhere}.composer input[type=text]{height:45px}.composer textarea:focus,.composer input[type=text]:focus{border-color:#b4f3f5;box-shadow:0 0 0 3px #86eaf42b}.field-hint{font-size:12px;color:var(--muted);line-height:1.5;margin:8px 0 18px}.inline-field{display:grid;grid-template-columns:1fr 115px;gap:17px;align-items:end}.motion{display:flex;align-items:center;gap:9px;font-size:13px;color:#d4e6e9;padding-bottom:10px}.motion input{accent-color:#a9f7f6;width:16px;height:16px}.primary{width:100%;padding:15px 18px;border:0;border-radius:9px;background:#b4f4f4;color:#0b2631;font-weight:780;transition:background .18s ease,transform .14s var(--ease)}.primary:hover{background:#e1ffff}.primary:active,.action:active,.mode:active{transform:scale(.97)}.status{font-size:12px;line-height:1.5;color:#b1e5e8;min-height:36px;margin:10px 0 0}
+    .visual{min-width:0}.scene{min-height:min(72vw,780px);position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 55% 36%,#315465 0,#152d3d 42%,#0b1a28 70%,#07131c 100%);border-radius:13px;isolation:isolate}.scene:before{content:"";position:absolute;inset:-18%;transform:rotate(-17deg);background:linear-gradient(105deg,transparent 28%,#d6faff10 41%,#bdebf00a 46%,transparent 58%);pointer-events:none}.scene:after{content:"";position:absolute;inset:0;background:radial-gradient(ellipse at 15% 12%,#d5f9ff27,transparent 37%),radial-gradient(ellipse at 80% 88%,#56bbdf17,transparent 40%);pointer-events:none}
+    .artifact{width:min(94%,760px);aspect-ratio:1;position:relative;z-index:1;transform:perspective(1100px) rotateX(34deg) rotateZ(-4deg) scale(.96);transform-origin:center;border-radius:50%;overflow:hidden;transition:transform .7s var(--ease);filter:drop-shadow(0 24px 20px #0008)}.scene.scan-flat .artifact{transform:none;filter:none}.artifact:before{content:"";position:absolute;inset:0;border-radius:50%;box-shadow:inset 0 0 44px #9eebff12,0 0 90px #63cbe620;pointer-events:none;z-index:2}#preview{width:100%;height:100%;aspect-ratio:1}#preview iframe,#preview svg{display:block;width:100%;height:100%;border:0}.scene.scan-flat{background:#07131c}.scene.scan-flat:before,.scene.scan-flat:after{display:none}
+    .visual-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 0 0}.visual-bar p{font-size:12px;color:var(--muted);margin:0}.mode-set{display:flex;gap:6px}.mode,.action{color:#d9eef0;background:transparent;border:1px solid #446273;border-radius:8px;font-size:12px;font-weight:680;padding:10px 13px;transition:background .18s ease,transform .14s var(--ease)}.mode[aria-pressed=true]{color:#082530;background:#b4f4f4;border-color:#b4f4f4}.mode:hover:not([aria-pressed=true]),.action:hover{background:#244352}
+    .tools{display:flex;align-items:start;justify-content:space-between;gap:30px;padding:32px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.tools h2,.scanner h2{font-size:23px;letter-spacing:-.02em;font-weight:650;margin:0 0 8px}.tools p,.scanner p{font-size:13px;line-height:1.6;color:var(--muted);margin:0;max-width:45ch}.downloads{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+    .scanner{display:grid;grid-template-columns:minmax(250px,1fr) minmax(290px,1.2fr);gap:32px;padding:54px 0 20px}.scanner-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:22px}.file-action{position:relative;overflow:hidden}.file-action:focus-within{outline:2px solid var(--cyan);outline-offset:3px}.file-action input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}.camera-wrap{position:relative;min-height:275px;display:flex;align-items:center;justify-content:center;background:#0b1e2b;border-radius:10px;overflow:hidden}.camera-wrap video{width:100%;max-height:500px;object-fit:contain;display:block}.camera-wrap video[hidden]{display:none}.camera-wrap .empty{max-width:25ch;text-align:center;font-size:14px;line-height:1.6;color:#92afb9}.camera-wrap:has(video:not([hidden])) .empty{display:none}.guide{position:absolute;width:min(80%,410px);aspect-ratio:1;border:1px solid #a0eef0aa;border-radius:50%;box-shadow:0 0 25px #95eefa33;pointer-events:none}.camera-wrap:has(video[hidden]) .guide{display:none}#scan-result{color:#d8fcfa;font-size:13px;line-height:1.6;margin-top:16px;overflow-wrap:anywhere}
+    .foot{max-width:1500px;margin:auto;padding:26px clamp(20px,4vw,64px) 36px;border-top:1px solid #385361;color:#96afb8;font-size:12px;display:flex;justify-content:space-between;gap:15px}.foot a{text-decoration:none;color:#bfdde3}
+    .scene:fullscreen{border-radius:0;min-height:100vh;min-height:100dvh;background:#07131c}.scene:fullscreen .artifact{width:min(96vw,96vh);transform:none;filter:none}.scene:fullscreen:before,.scene:fullscreen:after{display:none}
+    @media(max-width:1050px){.hero{grid-template-columns:minmax(270px,350px) minmax(0,1fr);gap:26px}.scene{min-height:600px}.artifact{width:min(96%,660px)}.visual-bar{flex-wrap:wrap}}
+    @media(max-width:780px){.hero{display:flex;flex-direction:column;padding:44px 0 50px;gap:33px;min-height:0}.intro{width:100%}.intro h1{max-width:14ch}.intro>p:not(.edition){max-width:60ch}.composer{max-width:600px}.visual{width:100%}.scene{min-height:0;aspect-ratio:1}.artifact{width:96%;transform:perspective(900px) rotateX(17deg) rotateZ(-3deg)}.scanner{grid-template-columns:1fr}.tools{display:block}.downloads{justify-content:flex-start;margin-top:20px}}
+    @media(max-width:470px){.topbar{height:66px}nav{gap:15px}nav a{font-size:12px}.intro h1{font-size:3.15rem}.visual-bar{display:block}.mode-set{margin-top:12px}.mode{flex:1}.visual-bar p{margin-bottom:10px}.tools h2,.scanner h2{font-size:21px}.scanner{padding-top:38px}.foot{display:block}.foot span{display:block;margin-bottom:8px}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.artifact,.primary,.mode,.action{transition:none}}
   </style>
 </head>
 <body>
-  <header><a class="brand" href="./">ASTER<span>HALO</span></a><nav><a href="https://github.com/Gitbub0816/scancode">GitHub</a><a href="#api">API</a></nav></header>
+  <header class="topbar"><a class="brand" href="./"><span class="brand-mark" aria-hidden="true"></span>ASTERHALO</a><nav><a href="#create">Create</a><a href="#scanner">Scan</a><a href="https://github.com/Gitbub0816/scancode">GitHub ↗</a></nav></header>
   <main>
-    <div class="eyebrow">Open source · Camera testing prototype</div>
-    <h1>A code with a <em>pulse.</em></h1>
-    <p class="intro">Turn a link or short text into a circular particle code. A single dotted outer track and the luminous inner cloud both carry data. Two groups of three dots guide the AsterHalo scanner. Stock camera apps do not recognize this custom format.</p>
-    <div class="workspace">
-      <section class="panel controls" aria-label="Generator controls">
-        <h2>Create your code</h2>
-        <label for="payload">Link or text</label>
-        <textarea id="payload" maxlength="2048" spellcheck="false">https://citeory.com/study-buddies/invite/aJ3BnnB12345</textarea>
-        <p class="hint">The exact text is encoded, up to 214 UTF-8 bytes. This example link is fictional.</p>
-        <label for="mark">Center initials <span style="color:#91a8bc;font-weight:400">(optional, up to 3)</span></label>
-        <input id="mark" maxlength="3" value="A">
-        <label class="switch"><input type="checkbox" id="motion" checked> Show moving halo</label>
-        <button id="generate" class="primary" type="button">Generate AsterHalo</button>
-        <div class="status" id="status" role="status" aria-live="polite"></div>
-        <div class="downloads">
-          <button id="svg" class="secondary" type="button">Download SVG</button>
-          <button id="png" class="secondary" type="button">Download PNG</button>
-          <button id="html" class="secondary" type="button">Download live HTML</button>
-          <button id="copy" class="secondary" type="button">Copy payload</button>
+    <section class="hero" id="create" aria-label="Create an AsterHalo code">
+      <div class="intro">
+        <p class="edition">AsterHalo / circular code studio</p>
+        <h1>Make a code <span>come alive.</span></h1>
+        <p>Put a link into a field of light. Present it in motion, download a still, or read it with the AsterHalo camera.</p>
+        <div class="composer">
+          <label for="payload">Destination link or text</label>
+          <textarea id="payload" maxlength="2048" spellcheck="false">https://citeory.com/study-buddies/invite/aJ3BnnB12345</textarea>
+          <p class="field-hint">Up to 87 UTF-8 bytes. Use a short destination link for longer addresses.</p>
+          <div class="inline-field"><div><label for="mark">Center mark</label><input id="mark" type="text" maxlength="3" value="A" aria-describedby="mark-hint"></div><label class="motion"><input type="checkbox" id="motion" checked> Living light</label></div>
+          <p class="field-hint" id="mark-hint">Optional, up to three characters.</p>
+          <button id="generate" class="primary" type="button">Create code</button>
+          <div class="status" id="status" role="status" aria-live="polite"></div>
         </div>
-      </section>
-      <section class="panel preview-panel" aria-label="Code preview">
-        <div id="preview"></div>
-        <p class="caption">Encoded particles stay fixed while light flows through the cloud.</p>
-      </section>
-    </div>
-    <section class="panel scanner" aria-label="AsterHalo camera scanner">
-      <h2>Scan this circular code</h2>
-      <p class="hint">Use the AsterHalo camera on a second device and show the full circle. Camera access requires HTTPS or localhost. Waypoint detection is experimental.</p>
-      <button id="scan" class="secondary" type="button">Scan with AsterHalo camera</button>
-      <div class="camera-wrap"><video id="camera" autoplay muted playsinline hidden></video><div class="guide"></div></div>
-      <div id="scan-result" role="status" aria-live="polite"></div>
+      </div>
+      <div class="visual"><div class="scene" id="scene"><div class="artifact"><div id="preview" aria-label="Generated AsterHalo code"></div></div></div><div class="visual-bar"><p>Rendered from the encoded particle geometry.</p><div class="mode-set" role="group" aria-label="Presentation mode"><button id="studio" class="mode" type="button" aria-pressed="true">Studio view</button><button id="flat" class="mode" type="button" aria-pressed="false">Scan view</button><button id="present" class="mode" type="button">Full screen ↗</button></div></div></div>
     </section>
-    <p class="hint" id="api" style="margin-top:28px">This page generates codes on your device. A deployable API Worker example is included in the SDK source; the public page does not expose an API endpoint.</p>
+    <section class="tools" aria-label="Download code"><div><h2>Take it with you.</h2><p>Export a print-ready still or a standalone animated page. The same payload is encoded in each.</p></div><div class="downloads"><button id="svg" class="action" type="button">SVG still</button><button id="png" class="action" type="button">PNG still</button><button id="html" class="action" type="button">Live HTML</button><button id="copy" class="action" type="button">Copy payload</button></div></section>
+    <section class="scanner" id="scanner" aria-label="AsterHalo camera scanner"><div><h2>Read an AsterHalo.</h2><p>Use this camera on a second device. Put the code in Scan view, show it full screen, and fill most of the camera frame. This custom format needs the AsterHalo reader.</p><div class="scanner-actions"><button id="scan" class="action" type="button">Open camera</button><label class="action file-action">Read saved image<input id="scan-image" type="file" accept="image/*"></label></div><div id="scan-result" role="status" aria-live="polite"></div></div><div class="camera-wrap"><video id="camera" autoplay muted playsinline hidden></video><div class="guide"></div><p class="empty">The camera preview appears here. Camera access requires HTTPS or localhost.</p></div></section>
   </main>
-  <footer><span>AsterHalo Polar is an experimental custom symbology. The SDK camera scanner detects it; stock camera apps do not.</span><span>MIT licensed SDK · No tracking in the generator</span></footer>
+  <footer class="foot"><span>Experimental custom code · MIT licensed · Created on your device</span><span>Standard phone cameras do not read this format. <a href="https://github.com/Gitbub0816/scancode">SDK and source ↗</a></span></footer>
   <script type="module" src="/app.js"></script>
 </body>
 </html>
