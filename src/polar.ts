@@ -179,7 +179,7 @@ export function renderPolarSvg(input: string | PolarCode, options: PolarRenderOp
     }
     wisps.push(`<path d="${points.join('')}" fill="none" stroke="${colors[layer % 4]}" stroke-opacity=".24" stroke-width="${((layer % 3 ? 16 : 26) * scale).toFixed(1)}"/>`);
   }
-  for (let strand = 0; strand < 76; strand++) {
+  for (let strand = 0; strand < 112; strand++) {
     const points: string[] = [];
     const phase = strand * 2.399963229728653;
     const start = phase % (2 * Math.PI);
@@ -193,12 +193,12 @@ export function renderPolarSvg(input: string | PolarCode, options: PolarRenderOp
       points.push(`${step ? 'L' : 'M'}${(cx + size * r * Math.cos(a)).toFixed(1)} ${(cx + size * r * Math.sin(a)).toFixed(1)}`);
     }
     const hue = colors[Math.floor((Math.sin(start * 3 + home * 34) + 1) * 1.999)];
-    filaments.push(`<path d="${points.join('')}" fill="none" stroke="${hue}" stroke-opacity="${strand % 8 === 0 ? '.47' : '.25'}" stroke-width="${((strand % 8 === 0 ? 1.6 : .8) * scale).toFixed(2)}" stroke-linecap="round"/>`);
+    filaments.push(`<path d="${points.join('')}" fill="none" stroke="${hue}" stroke-opacity="${strand % 8 === 0 ? '.62' : '.38'}" stroke-width="${((strand % 8 === 0 ? 1.7 : .9) * scale).toFixed(2)}" stroke-linecap="round"/>`);
   }
   const vapor: string[] = [];
   const sparks: string[] = [];
   const next = random(0x6f0b91e2);
-  for (let i = 0; i < 6200; i++) {
+  for (let i = 0; i < 12000; i++) {
     const angle = (next() / 0x100000000) * Math.PI * 2;
     const spread = (next() / 0x100000000 + next() / 0x100000000) / 2;
     const wave = .026 * Math.sin(5 * angle + .4) + .016 * Math.cos(9 * angle - .5) + .008 * Math.sin(16 * angle + .7);
@@ -206,8 +206,8 @@ export function renderPolarSvg(input: string | PolarCode, options: PolarRenderOp
     const x = (cx + size * r * Math.cos(angle)).toFixed(2);
     const y = (cx + size * r * Math.sin(angle)).toFixed(2);
     const band = Math.floor((Math.sin(angle * 3 + r * 34) + 1) * 1.999);
-    const dot = ((i % 37 === 0 ? 1.8 : i % 7 === 0 ? 1.08 : .48) * scale).toFixed(2);
-    const opacity = i % 37 === 0 ? '.92' : i % 7 === 0 ? '.73' : '.55';
+    const dot = ((i % 37 === 0 ? 1.9 : i % 7 === 0 ? 1.12 : .54) * scale).toFixed(2);
+    const opacity = i % 37 === 0 ? '.98' : i % 7 === 0 ? '.83' : '.68';
     vapor.push(`<circle cx="${x}" cy="${y}" r="${dot}" fill="${colors[band]}" opacity="${opacity}"/>`);
     if (i % 37 === 0) sparks.push(`<circle cx="${x}" cy="${y}" r="${(5.4 * scale).toFixed(2)}" fill="${colors[band]}" opacity=".29"/>`);
   }
