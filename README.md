@@ -2,6 +2,8 @@
 
 AsterHalo Polar is an experimental **circular code format**. It does not place a square QR image under the artwork. A UTF-8 payload is encoded into 2,040 data-bearing particle positions on 12 concentric tracks in the outer ring. Three circular finder eyes occupy reserved positions in the ring. The renderer draws the encoded positions directly; the optional vapor animation moves freely inside the fixed data ring.
 
+The public generator is at [gitbub0816.github.io/scancode](https://gitbub0816.github.io/scancode/). It generates codes in the browser, downloads static SVG/PNG or live HTML, and includes a browser camera scanner.
+
 **Scanner status:** the web SDK locates the three finder eyes in a camera frame, then samples the outer ring. Native Swift and Android implementations encode, render, and decode the same wire format. Automated raster tests cover rotation, scaling, blur, and compression; physical camera and print testing is still required. The current affine locator does not correct strong perspective distortion. Stock camera apps do not know this format.
 
 ## Wire format, version 1
@@ -37,6 +39,11 @@ const scanner = await startPolarCameraScanner(videoElement, text => console.log(
 `renderPolarSvg(payload, { animated: true })` adds motion to the vapor layer while keeping data positions fixed. The generator site downloads static SVG and PNG, or a standalone animated HTML page. `npm run check` builds the package and tests exact URL/Unicode round trips, Reed–Solomon recovery, and raster decoding after rendering.
 
 `node scripts/build-standalone.mjs` produces a single-file generator with the browser scanner. Camera access depends on the browser's secure-context rules; an HTTPS deployment is the intended way to use it on phones.
+
+## Native packages
+
+- iOS: add `native/ios` as a Swift package. `AsterHaloPolar.encodeBits`, `.render`, and `.decode` use the same format; `AsterHaloView` displays the animated symbol and `AsterHaloScanner` owns an AVFoundation camera preview.
+- Android: include `native/android/asterhalo` as a Gradle library. `AsterHaloPolar.encodeBits`, `.render`, and `.decode(Bitmap)` use the same format; `AsterHaloView` displays the animated symbol. Pass camera frames as `Bitmap` to `.decode`. A ready-made Android camera screen is not included yet.
 
 ## Generator API
 
