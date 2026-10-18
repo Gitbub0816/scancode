@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
+import { fileURLToPath } from 'node:url';
 import { encodePolar, decodePolarBits, decodePolarRgba, decodePolarFrame, renderPolarSvg } from '../dist/index.js';
 
 test('polar encoder carries exact Unicode and URL payloads in the one-row ring and cloud', () => {
@@ -69,6 +70,13 @@ test('waypoint scanner reads a camera-sized blurred symbol', async () => {
   const svg = Buffer.from(renderPolarSvg(payload, { size: 800 }));
   const { data, info } = await sharp(svg).resize(400, 400).blur(.7).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   assert.equal(decodePolarFrame(data, info.width, info.height)?.payload, payload);
+});
+
+test('reader recovers the supplied perspective-distorted studio capture', async () => {
+  const fixture = fileURLToPath(new URL('./fixtures/v3-studio-capture.png', import.meta.url));
+  const { data, info } = await sharp(fixture).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  assert.equal(decodePolarFrame(data, info.width, info.height)?.payload,
+    'https://citeory.com/study-buddies/invite/aJ3BnnB12345');
 });
 
 test('sampler reads a slightly rotated and rescaled frame with guide adjustment', async () => {
