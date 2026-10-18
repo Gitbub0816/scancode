@@ -345,6 +345,47 @@ public final class AsterHaloPolar {
         double[] result=new double[6];for(int j=0;j<6;j++)result[j]=center[j]+factor*(center[j]-worst[j]);return result;
     }
 
+    private static boolean waypointGeometry(Waypoint a,Waypoint b) {
+        double chord=Math.hypot(b.x-a.x,b.y-a.y),axisX=(b.x-a.x)/chord,axisY=(b.y-a.y)/chord;
+        double[][] tangent=new double[2][];Waypoint[] points={a,b};
+        for(int i=0;i<2;i++) {
+            Dot[] ordered=points[i].dots.clone();
+            Arrays.sort(ordered,Comparator.comparingDouble(d->d.x*axisX+d.y*axisY));
+            double dx=ordered[2].x-ordered[0].x,dy=ordered[2].y-ordered[0].y,len=Math.hypot(dx,dy);
+            tangent[i]=new double[]{(dx*axisX+dy*axisY)/len,(axisX*dy-axisY*dx)/len};
+        }
+        return tangent[0][0]>.45&&tangent[0][0]<.92&&tangent[1][0]>.45&&tangent[1][0]<.92&&tangent[0][1]*tangent[1][1]<-.15;
+    }
+
+    private static int ringSupport(Waypoint left,Waypoint right,List<Dot> dots) {
+        double chord=Math.hypot(right.x-left.x,right.y-left.y),angle=Math.atan2(right.y-left.y,right.x-left.x);
+        double size=chord/(.42*Math.sqrt(2));
+        double[] p={(left.x+right.x)/2-.297*size*Math.sin(angle),(left.y+right.y)/2+.297*size*Math.cos(angle),size,size,angle,0};
+        boolean[] sectors=new boolean[16];int count=0;
+        for(Dot dot:dots) {
+            double[] uv=inverse(p,dot.x,dot.y);
+            if(Math.abs(Math.hypot(uv[0],uv[1])-.42)>.035)continue;
+            count++;
+            int sector=(int)Math.floor((Math.atan2(uv[1],uv[0])+Math.PI)/(2*Math.PI)*16)%16;
+            sectors[sector]=true;
+        }
+        for(boolean seen:sectors)if(seen)count+=6;
+        return count;
+    }
+
+    private static double fieldContrast(int[] pixels,int width,int height,double[] p) {
+        double[] values=new double[BITS];
+        for(int i=0;i<BITS;i++) {
+            double[] xy=project(p,SLOTS[i].x-.5,SLOTS[i].y-.5);
+            int x=(int)Math.round(xy[0]),y=(int)Math.round(xy[1]);
+            if(x<0||y<0||x>=width||y>=height)return Double.NEGATIVE_INFINITY;
+            values[i]=luma(pixels[y*width+x]);
+        }
+        Arrays.sort(values);double score=0;
+        for(int i=0;i<BITS/2;i++)score+=values[i+BITS/2]-values[i];
+        return score;
+    }
+
     private static String sampleProjection(int[] pixels,int width,int height,double[] p) {
         byte[] bits=new byte[BITS];
         for(int i=0;i<BITS;i++) {
@@ -384,17 +425,26 @@ public final class AsterHaloPolar {
         for(int i=0;i<points.size();i++)for(int j=i+1;j<points.size();j++) {
             Waypoint a=points.get(i),b=points.get(j);double chord=Math.hypot(a.x-b.x,a.y-b.y);
             double ratio=chord/((a.spacing+b.spacing)/2);
-            if(chord>=90&&chord<=Math.max(width,height)*.9&&ratio>=32&&ratio<=78)pairs.add(new Waypoint[]{a,b});
+            if(chord>=90&&chord<=Math.max(width,height)*.9&&ratio>=32&&ratio<=78&&waypointGeometry(a,b))pairs.add(new Waypoint[]{a,b});
         }
-        pairs.sort(Comparator.comparingDouble((Waypoint[] pair)->pair[0].score+pair[1].score).reversed());
+        pairs.sort(Comparator.comparingInt((Waypoint[] pair)->ringSupport(pair[0],pair[1],dots)).reversed());
         for(int pi=0;pi<Math.min(3,pairs.size());pi++)for(int order=0;order<2;order++) {
             Waypoint left=pairs.get(pi)[order],right=pairs.get(pi)[1-order];
             double[] fitted=fitProjection(left,right,dots);
-            for(int step=0;step<=6;step++)for(int sign:new int[]{1,-1})for(int axis=0;axis<2;axis++) {
-                double dx=axis==0 ? sign*step*.5 : 0,dy=axis==1 ? sign*step*.5 : 0;
-                for(double extra:new double[]{0,.5,-.5,1,-1}) {
-                    double[] adjusted=fitted.clone();adjusted[0]+=dx;adjusted[1]+=dy+extra;
-                    try{return sampleProjection(pixels,width,height,adjusted);}catch(Exception ignored){}
+            List<double[]> angles=new ArrayList<>();
+            for(int i=0;i<=40;i++) {
+                double[] projection=fitted.clone();projection[4]+=(i-20)*.002;
+                angles.add(projection);
+            }
+            angles.sort(Comparator.comparingDouble((double[] p)->fieldContrast(pixels,width,height,p)).reversed());
+            for(int ai=0;ai<Math.min(5,angles.size());ai++) {
+                double[] angled=angles.get(ai);
+                for(int step=0;step<=12;step++)for(int sign:new int[]{1,-1})for(int axis=0;axis<2;axis++) {
+                    double dx=axis==0 ? sign*step*.5 : 0,dy=axis==1 ? sign*step*.5 : 0;
+                    for(double extra:new double[]{0,.5,-.5}) {
+                        double[] adjusted=angled.clone();adjusted[0]+=dx;adjusted[1]+=dy+extra;
+                        try{return sampleProjection(pixels,width,height,adjusted);}catch(Exception ignored){}
+                    }
                 }
             }
         }

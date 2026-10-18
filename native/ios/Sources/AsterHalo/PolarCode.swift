@@ -381,6 +381,51 @@ public enum AsterHaloPolar {
         return simplex[best]
     }
 
+    private static func waypointGeometry(_ a: Waypoint, _ b: Waypoint) -> Bool {
+        let chord = hypot(b.x - a.x, b.y - a.y)
+        let axisX = (b.x - a.x) / chord, axisY = (b.y - a.y) / chord
+        func tangent(_ point: Waypoint) -> (Double, Double) {
+            let ordered = point.dots.sorted { $0.x * axisX + $0.y * axisY < $1.x * axisX + $1.y * axisY }
+            let dx = ordered[2].x - ordered[0].x, dy = ordered[2].y - ordered[0].y
+            let length = hypot(dx, dy)
+            return ((dx * axisX + dy * axisY) / length, (axisX * dy - axisY * dx) / length)
+        }
+        let (aa, ac) = tangent(a), (ba, bc) = tangent(b)
+        return aa > 0.45 && aa < 0.92 && ba > 0.45 && ba < 0.92 && ac * bc < -0.15
+    }
+
+    private static func ringSupport(_ left: Waypoint, _ right: Waypoint, _ dots: [MarkerDot]) -> Int {
+        let chord = hypot(right.x - left.x, right.y - left.y)
+        let angle = atan2(right.y - left.y, right.x - left.x)
+        let size = chord / (0.42 * sqrt(2.0))
+        let p = [(left.x + right.x) / 2 - 0.297 * size * sin(angle),
+                 (left.y + right.y) / 2 + 0.297 * size * cos(angle), size, size, angle, 0]
+        var sectors = [Bool](repeating: false, count: 16), count = 0
+        for dot in dots {
+            let (u, v) = inverse(p, dot.x, dot.y)
+            if abs(hypot(u, v) - 0.42) > 0.035 { continue }
+            count += 1
+            let sector = Int(floor((atan2(v, u) + Double.pi) / (2 * Double.pi) * 16)) % 16
+            sectors[sector] = true
+        }
+        return count + sectors.filter { $0 }.count * 6
+    }
+
+    private static func fieldContrast(_ bytes: [UInt8], _ width: Int, _ height: Int, _ p: [Double]) -> Double {
+        var values: [Double] = []
+        values.reserveCapacity(bitCount)
+        for slot in slots {
+            let (x, y) = project(p, slot.x - 0.5, slot.y - 0.5)
+            let xx = Int(x.rounded()), yy = Int(y.rounded())
+            if xx < 0 || yy < 0 || xx >= width || yy >= height { return -.infinity }
+            values.append(Double(luminance(bytes, width, xx, yy)))
+        }
+        values.sort()
+        var score = 0.0
+        for i in 0..<(values.count / 2) { score += values[i + values.count / 2] - values[i] }
+        return score
+    }
+
     private static func sampleProjection(_ bytes: [UInt8], _ width: Int, _ height: Int, _ p: [Double]) throws -> String {
         var bits = [UInt8](repeating: 0, count: bitCount)
         for i in 0..<bitCount {
@@ -427,22 +472,28 @@ public enum AsterHaloPolar {
         for i in 0..<(waypoints.count - 1) { for j in (i + 1)..<waypoints.count {
             let a = waypoints[i], b = waypoints[j], chord = hypot(a.x - b.x, a.y - b.y)
             let ratio = chord / ((a.spacing + b.spacing) / 2)
-            if chord >= 90 && chord <= Double(max(width, height)) * 0.9 && ratio >= 32 && ratio <= 78 {
+            if chord >= 90 && chord <= Double(max(width, height)) * 0.9 && ratio >= 32 && ratio <= 78 && waypointGeometry(a, b) {
                 pairs.append((a, b))
             }
         }}
-        pairs.sort { $0.0.score + $0.1.score > $1.0.score + $1.1.score }
+        pairs.sort { ringSupport($0.0, $0.1, dots) > ringSupport($1.0, $1.1, dots) }
         for pair in pairs.prefix(3) {
             for (left, right) in [(pair.0, pair.1), (pair.1, pair.0)] {
                 let fitted = fitProjection(left, right, dots)
-                for step in 0...6 { for sign in [1.0, -1.0] { for axis in 0...1 {
-                    let dx = axis == 0 ? sign * Double(step) * 0.5 : 0
-                    let dy = axis == 1 ? sign * Double(step) * 0.5 : 0
-                    for extra in [0.0, 0.5, -0.5, 1, -1] {
-                        var adjusted = fitted; adjusted[0] += dx; adjusted[1] += dy + extra
-                        if let value = try? sampleProjection(bytes, width, height, adjusted) { return value }
-                    }
-                }}}
+                let angles = (0...40).map { i -> ([Double], Double) in
+                    var p = fitted; p[4] += Double(i - 20) * 0.002
+                    return (p, fieldContrast(bytes, width, height, p))
+                }.sorted { $0.1 > $1.1 }
+                for angle in angles.prefix(5) {
+                    for step in 0...12 { for sign in [1.0, -1.0] { for axis in 0...1 {
+                        let dx = axis == 0 ? sign * Double(step) * 0.5 : 0
+                        let dy = axis == 1 ? sign * Double(step) * 0.5 : 0
+                        for extra in [0.0, 0.5, -0.5] {
+                            var adjusted = angle.0; adjusted[0] += dx; adjusted[1] += dy + extra
+                            if let value = try? sampleProjection(bytes, width, height, adjusted) { return value }
+                        }
+                    }}}
+                }
             }
         }
         for i in 0..<(waypoints.count - 1) { for j in (i + 1)..<waypoints.count {

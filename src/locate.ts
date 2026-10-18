@@ -162,6 +162,38 @@ function fitProjection(left: Waypoint, right: Waypoint, dots: Dot[]): Projection
   return simplex[values.indexOf(Math.min(...values))];
 }
 
+function ringSupport(left: Waypoint, right: Waypoint, dots: Dot[]): number {
+  const chord = Math.hypot(right.x - left.x, right.y - left.y);
+  const angle = Math.atan2(right.y - left.y, right.x - left.x);
+  const size = chord / (.42 * Math.SQRT2);
+  const p: Projection = [(left.x + right.x) / 2 - .297 * size * Math.sin(angle),
+    (left.y + right.y) / 2 + .297 * size * Math.cos(angle), size, size, angle, 0];
+  const sectors = new Uint8Array(16);
+  let count = 0;
+  for (const dot of dots) {
+    const [u, v] = inverse(p, dot.x, dot.y);
+    const radius = Math.hypot(u, v);
+    if (Math.abs(radius - .42) > .035) continue;
+    count++;
+    sectors[Math.floor(((Math.atan2(v, u) + Math.PI) / (2 * Math.PI)) * 16) % 16] = 1;
+  }
+  return count + sectors.reduce((sum, value) => sum + value, 0) * 6;
+}
+
+function waypointGeometry(a: Waypoint, b: Waypoint): boolean {
+  const chord = Math.hypot(b.x - a.x, b.y - a.y);
+  const axisX = (b.x - a.x) / chord, axisY = (b.y - a.y) / chord;
+  const tangent = (point: Waypoint): [number, number] => {
+    const ordered = [...point.dots].sort((x, y) =>
+      (x.x * axisX + x.y * axisY) - (y.x * axisX + y.y * axisY));
+    const dx = ordered[2].x - ordered[0].x, dy = ordered[2].y - ordered[0].y;
+    const length = Math.hypot(dx, dy);
+    return [(dx * axisX + dy * axisY) / length, (axisX * dy - axisY * dx) / length];
+  };
+  const [aAlong, aAcross] = tangent(a), [bAlong, bAcross] = tangent(b);
+  return aAlong > .45 && aAlong < .92 && bAlong > .45 && bAlong < .92 && aAcross * bAcross < -.15;
+}
+
 function sampleProjection(rgba: ArrayLike<number>, width: number, height: number, p: Projection): string {
   const slots = getPolarSlots(), bits = new Uint8Array(slots.length);
   for (let i = 0; i < bits.length; i++) {
@@ -171,6 +203,21 @@ function sampleProjection(rgba: ArrayLike<number>, width: number, height: number
     bits[i] = luminance(rgba, width, xx, yy) > 105 ? 1 : 0;
   }
   return decodePolarBits(bits);
+}
+
+function fieldContrast(rgba: ArrayLike<number>, width: number, height: number, p: Projection): number {
+  const values = new Float32Array(getPolarSlots().length);
+  const slots = getPolarSlots();
+  for (let i = 0; i < slots.length; i++) {
+    const [x, y] = project(p, slots[i].x - .5, slots[i].y - .5);
+    const xx = Math.round(x), yy = Math.round(y);
+    if (xx < 0 || yy < 0 || xx >= width || yy >= height) return -Infinity;
+    values[i] = luminance(rgba, width, xx, yy);
+  }
+  values.sort();
+  let score = 0;
+  for (let i = 0; i < values.length / 2; i++) score += values[i + values.length / 2] - values[i];
+  return score;
 }
 
 function sample(rgba: ArrayLike<number>, width: number, height: number, a: Waypoint, b: Waypoint, q: number, offsetX: number, offsetY: number): string {
@@ -203,20 +250,27 @@ export function decodePolarFrame(rgba: ArrayLike<number>, width: number, height:
   for (let i = 0; i < waypoints.length; i++) for (let j = i + 1; j < waypoints.length; j++) {
     const a = waypoints[i], b = waypoints[j], chord = Math.hypot(a.x - b.x, a.y - b.y);
     const spacingRatio = chord / ((a.spacing + b.spacing) / 2);
-    if (chord >= 90 && chord <= Math.max(width, height) * .9 && spacingRatio >= 32 && spacingRatio <= 78) pairs.push([a, b]);
+    if (chord >= 90 && chord <= Math.max(width, height) * .9 && spacingRatio >= 32 && spacingRatio <= 78 && waypointGeometry(a, b)) pairs.push([a, b]);
   }
-  pairs.sort((a, b) => b[0].score + b[1].score - a[0].score - a[1].score);
+  pairs.sort((a, b) => ringSupport(b[0], b[1], dots) - ringSupport(a[0], a[1], dots));
   for (const [a, b] of pairs.slice(0, 3)) for (const [left, right] of [[a, b], [b, a]]) {
     const fitted = fitProjection(left, right, dots);
-    for (const [dx, dy] of [[0, 0], ...Array.from({ length: 6 }, (_, i) => i + 1)
-      .flatMap(step => [[step * .5, 0], [-step * .5, 0], [0, step * .5], [0, -step * .5]])]) {
-      for (const shiftY of [dy, dy + .5, dy - .5, dy + 1, dy - 1]) {
-        const adjusted = [...fitted] as Projection;
-        adjusted[0] += dx; adjusted[1] += shiftY;
-        try {
-          const payload = sampleProjection(rgba, width, height, adjusted);
-          return { payload, waypoints: [{ x: left.x, y: left.y }, { x: right.x, y: right.y }], symbolSize: fitted[2] };
-        } catch { /* Try the next subpixel alignment. */ }
+    const angles = Array.from({ length: 41 }, (_, i) => {
+      const projection = [...fitted] as Projection;
+      projection[4] += (i - 20) * .002;
+      return { projection, score: fieldContrast(rgba, width, height, projection) };
+    }).sort((x, y) => y.score - x.score).slice(0, 5);
+    for (const angle of angles) {
+      for (const [dx, dy] of [[0, 0], ...Array.from({ length: 12 }, (_, i) => (i + 1) * .5)
+        .flatMap(step => [[step, 0], [-step, 0], [0, step], [0, -step]])]) {
+        for (const shiftY of [dy, dy + .5, dy - .5]) {
+          const adjusted = [...angle.projection] as Projection;
+          adjusted[0] += dx; adjusted[1] += shiftY;
+          try {
+            const payload = sampleProjection(rgba, width, height, adjusted);
+            return { payload, waypoints: [{ x: left.x, y: left.y }, { x: right.x, y: right.y }], symbolSize: fitted[2] };
+          } catch { /* Try the next subpixel alignment. */ }
+        }
       }
     }
   }

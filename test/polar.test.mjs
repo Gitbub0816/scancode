@@ -79,6 +79,15 @@ test('reader recovers the supplied perspective-distorted studio capture', async 
     'https://citeory.com/study-buddies/invite/aJ3BnnB12345');
 });
 
+test('reader ignores page text and reads both live presentation views', async () => {
+  for (const name of ['studio', 'scan']) {
+    const fixture = fileURLToPath(new URL(`./fixtures/v3-live-${name}.jpg`, import.meta.url));
+    const { data, info } = await sharp(fixture).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    assert.equal(decodePolarFrame(data, info.width, info.height)?.payload,
+      'https://citeory.com/study-buddies/invite/aJ3BnnB12345', `${name} view failed`);
+  }
+});
+
 test('sampler reads a slightly rotated and rescaled frame with guide adjustment', async () => {
   const payload = 'https://example.org/invite/abc';
   const svg = Buffer.from(renderPolarSvg(payload, { size: 800 }));
