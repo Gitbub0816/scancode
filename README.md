@@ -4,7 +4,7 @@ AsterHalo Polar is an experimental **circular code format**. It does not place a
 
 The public generator is at [gitbub0816.github.io/scancode](https://gitbub0816.github.io/scancode/). It generates codes in the browser, downloads static SVG/PNG or live HTML, and includes a browser camera scanner.
 
-**Scanner status:** the web SDK locates the two three-dot waypoints in a camera frame, then samples the outer track and inner cloud. Native Swift and Android implementations encode, render, and decode the same wire format. Automated raster tests cover rotation, scaling, blur, and compression at reduced displayed sizes; physical camera and print testing is still required. The current affine locator does not correct strong perspective distortion. Stock camera apps do not know this format.
+**Scanner status:** the web SDK locates the six waypoint dots and fits the projected outer data circle before sampling the cloud. Native Swift and Android readers use the same perspective fit. Automated raster tests cover rotation, scaling, blur, compression, and a perspective-distorted screenshot supplied during testing. The Swift reader decoded that screenshot as well. Physical camera and print testing is still required. Stock camera apps do not know this format.
 
 ## Wire format, version 3
 

@@ -178,7 +178,7 @@ export function renderPolarSvg(input: string | PolarCode, options: PolarRenderOp
   if (!Number.isInteger(size) || size < 600 || size > 4096) throw new RangeError('size must be 600-4096');
   const cx = size / 2;
   const scale = size / 800;
-  const colors = ['#6cecf1', '#ef77c4', '#efd08f', '#7bbbe4'];
+  const colors = ['#45d8f2', '#f051b0', '#f0c86c', '#62aee8'];
   const bright: string[] = [], dim: string[] = [];
   for (let i = 0; i < code.bits.length; i++) {
     const slot = code.slots[i];
@@ -216,17 +216,20 @@ export function renderPolarSvg(input: string | PolarCode, options: PolarRenderOp
   for (let i = 0; i < 30000; i++) {
     const a = next() / 0x100000000 * Math.PI * 2;
     const v = next() / 0x100000000 * Math.PI * 2;
-    const cross = Math.sqrt(next() / 0x100000000) * .068;
-    const fold = .006 * Math.sin(12 * a + 2.2 * v) + .003 * Math.cos(22 * a - 3 * v);
+    const volume = .062 + .014 * Math.sin(4 * a - .6) + .008 * Math.cos(7 * a + 1.1);
+    const cross = Math.sqrt(next() / 0x100000000) * volume;
+    const fold = .008 * Math.sin(12 * a + 2.2 * v) + .003 * Math.cos(22 * a - 3 * v);
     const r = ridge(a) + cross * Math.cos(v) + fold;
     const depth = cross * Math.sin(v);
     const angle = a + .011 * Math.sin(7 * a + v);
     const x = (cx + size * r * Math.cos(angle)).toFixed(2);
     const y = (cx + size * (r * Math.sin(angle) + depth * .48)).toFixed(2);
-    const band = Math.min(3, Math.floor((Math.sin(2.9 * a + 19 * r + v * .36) + 1) * 1.999));
-    const light = .5 + .5 * Math.max(0, Math.sin(6 * a + v + r * 29));
-    const dot = ((i % 137 === 0 ? 1.35 : i % 19 === 0 ? .88 : .42) * scale).toFixed(2);
-    const opacity = (i % 137 === 0 ? .84 : .28 + light * .4).toFixed(2);
+    const chroma = Math.sin(2.8 * a + 2.2 * Math.sin(v) + 7 * (r - ridge(a)));
+    const band = chroma > .38 ? 1 : chroma < -.38 ? 0 : Math.cos(4.8 * a + v) > 0 ? 3 : 2;
+    const depthLight = .43 + .57 * (.5 + .5 * Math.cos(v - .65));
+    const light = (.42 + .58 * Math.max(0, Math.sin(6 * a + v + r * 29))) * depthLight;
+    const dot = ((i % 137 === 0 ? 1.4 : i % 19 === 0 ? .94 : .5) * scale).toFixed(2);
+    const opacity = (i % 137 === 0 ? .94 : .29 + light * .52).toFixed(2);
     vapor[band].push(`<circle cx="${x}" cy="${y}" r="${dot}" fill="${colors[band]}" opacity="${opacity}"/>`);
     if (i % 137 === 0) sparks.push(`<circle cx="${x}" cy="${y}" r="${(3.7 * scale).toFixed(2)}" fill="${colors[band]}" opacity=".18"/>`);
   }

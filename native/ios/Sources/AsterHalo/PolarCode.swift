@@ -44,7 +44,7 @@ private struct GF256 {
 }
 
 private struct MarkerDot { let x: Double; let y: Double; let area: Int }
-private struct Waypoint { let x: Double; let y: Double; let score: Double; let spacing: Double }
+private struct Waypoint { let x: Double; let y: Double; let score: Double; let spacing: Double; let dots: [MarkerDot] }
 
 public enum AsterHaloPolar {
     public static let payloadLimit = 87
@@ -273,7 +273,7 @@ public enum AsterHaloPolar {
             if area < 3 || area > 130 || bw < 2 || bh < 2 || bw > 18 || bh > 18 || ratio < 0.55 || ratio > 1.8 { continue }
             dots.append(MarkerDot(x: Double(sumX) / Double(area), y: Double(sumY) / Double(area), area: area))
         }
-        return Array(dots.sorted(by: { $0.area > $1.area }).prefix(96))
+        return Array(dots.sorted(by: { $0.area > $1.area }).prefix(192))
     }
 
     private static func waypointCandidates(_ dots: [MarkerDot]) -> [Waypoint] {
@@ -295,10 +295,102 @@ public enum AsterHaloPolar {
                 if offset > max(2.6, 0.24 * max(da, db)) { continue }
                 let x = (a.x + middle.x + b.x) / 3, y = (a.y + middle.y + b.y) / 3
                 if found.contains(where: { hypot($0.x - x, $0.y - y) < 5 }) { continue }
-                found.append(Waypoint(x: x, y: y, score: Double(a.area + middle.area + b.area) - offset * 2, spacing: (da + db) / 2))
+                found.append(Waypoint(x: x, y: y, score: Double(a.area + middle.area + b.area) - offset * 2, spacing: (da + db) / 2, dots: [a, middle, b]))
             }}
         }
         return Array(found.sorted(by: { $0.score > $1.score }).prefix(16))
+    }
+
+    private static func project(_ p: [Double], _ u: Double, _ v: Double) -> (Double, Double) {
+        let c = cos(p[4]), s = sin(p[4]), den = 1 + p[5] * v
+        return (p[0] + (p[2] * u * c - p[3] * v * s) / den,
+                p[1] + (p[2] * u * s + p[3] * v * c) / den)
+    }
+
+    private static func inverse(_ p: [Double], _ x: Double, _ y: Double) -> (Double, Double) {
+        let c = cos(p[4]), s = sin(p[4]), dx = x - p[0], dy = y - p[1]
+        let uu = c * dx + s * dy, vv = -s * dx + c * dy
+        let v = vv / (p[3] - p[5] * vv)
+        return (uu * (1 + p[5] * v) / p[2], v)
+    }
+
+    private static func fitLoss(_ p: [Double], _ observed: [MarkerDot], _ source: [(Double, Double)], _ ring: [MarkerDot]) -> Double {
+        if p[2] < 100 || p[3] < 100 || abs(p[5]) > 1.5 { return 1e15 }
+        var sum = 0.0
+        for i in 0..<6 {
+            let (x, y) = project(p, source[i].0, source[i].1)
+            sum += 0.5 * (pow(x - observed[i].x, 2) + pow(y - observed[i].y, 2))
+        }
+        for dot in ring {
+            let (u, v) = inverse(p, dot.x, dot.y)
+            let error = (hypot(u, v) - 0.42) * 1000
+            sum += min(error * error, 4000)
+        }
+        return sum
+    }
+
+    private static func fitProjection(_ left: Waypoint, _ right: Waypoint, _ dots: [MarkerDot]) -> [Double] {
+        let chord = hypot(right.x - left.x, right.y - left.y)
+        let angle = atan2(right.y - left.y, right.x - left.x)
+        let size = chord / (0.42 * sqrt(2.0))
+        let midX = (left.x + right.x) / 2, midY = (left.y + right.y) / 2
+        let initial = [midX - 0.297 * size * sin(angle), midY + 0.297 * size * cos(angle), size, size, angle, 0]
+        let axisX = (right.x - left.x) / chord, axisY = (right.y - left.y) / chord
+        let along: (MarkerDot, MarkerDot) -> Bool = { a, b in a.x * axisX + a.y * axisY < b.x * axisX + b.y * axisY }
+        let observed = left.dots.sorted(by: along) + right.dots.sorted(by: along)
+        var source: [(Double, Double)] = []
+        for base in [5 * Double.pi / 4, 7 * Double.pi / 4] {
+            for offset in [-0.029, 0, 0.029] { source.append((0.42 * cos(base + offset), 0.42 * sin(base + offset))) }
+        }
+        let ring = dots.filter { dot in
+            let (u, v) = inverse(initial, dot.x, dot.y)
+            let radius = hypot(u, v)
+            return radius > 0.34 && radius < 0.52 && Double(dot.area) < max(50, left.score / 2)
+        }
+        var simplex = [initial]
+        let step = [4.0, 4.0, 8.0, 8.0, 0.007, 0.04]
+        for i in 0..<6 { var trial = initial; trial[i] += step[i]; simplex.append(trial) }
+        var values = simplex.map { fitLoss($0, observed, source, ring) }
+        for _ in 0..<450 {
+            let order = (0..<7).sorted { values[$0] < values[$1] }
+            simplex = order.map { simplex[$0] }; values = order.map { values[$0] }
+            var center = [Double](repeating: 0, count: 6)
+            for i in 0..<6 { for j in 0..<6 { center[j] += simplex[i][j] / 6 } }
+            func trial(_ factor: Double) -> [Double] { (0..<6).map { center[$0] + factor * (center[$0] - simplex[6][$0]) } }
+            let reflected = trial(1), reflectedLoss = fitLoss(reflected, observed, source, ring)
+            if reflectedLoss < values[0] {
+                let expanded = trial(2), expandedLoss = fitLoss(expanded, observed, source, ring)
+                simplex[6] = expandedLoss < reflectedLoss ? expanded : reflected
+                values[6] = min(expandedLoss, reflectedLoss)
+            } else if reflectedLoss < values[5] {
+                simplex[6] = reflected; values[6] = reflectedLoss
+            } else {
+                let contracted = trial(reflectedLoss < values[6] ? 0.5 : -0.5)
+                let contractedLoss = fitLoss(contracted, observed, source, ring)
+                if contractedLoss < min(reflectedLoss, values[6]) {
+                    simplex[6] = contracted; values[6] = contractedLoss
+                } else {
+                    for i in 1..<7 {
+                        simplex[i] = (0..<6).map { (simplex[0][$0] + simplex[i][$0]) / 2 }
+                        values[i] = fitLoss(simplex[i], observed, source, ring)
+                    }
+                }
+            }
+        }
+        let best = (0..<7).min { values[$0] < values[$1] } ?? 0
+        return simplex[best]
+    }
+
+    private static func sampleProjection(_ bytes: [UInt8], _ width: Int, _ height: Int, _ p: [Double]) throws -> String {
+        var bits = [UInt8](repeating: 0, count: bitCount)
+        for i in 0..<bitCount {
+            let slot = slots[i]
+            let (x, y) = project(p, slot.x - 0.5, slot.y - 0.5)
+            let xx = Int(x.rounded()), yy = Int(y.rounded())
+            guard xx >= 0 && yy >= 0 && xx < width && yy < height else { throw PolarCodeError.invalidImage }
+            bits[i] = luminance(bytes, width, xx, yy) > 105 ? 1 : 0
+        }
+        return try decodeBits(bits)
     }
 
     private static func sample(_ bytes: [UInt8], _ width: Int, _ height: Int,
@@ -328,8 +420,31 @@ public enum AsterHaloPolar {
         let ratios: [Double] = [1, 0.66, 0.662, 0.75, 0.8, 0.9, 1.1] + (0...60).map { 0.6 + Double($0) * 0.01 }
         let offsets: [(Double, Double)] = [(0,0),(0,0.5),(0,-0.5),(-0.5,0),(0.5,0),(-0.5,-0.5),(0.5,0.5),(-0.5,0.5),(0.5,-0.5)]
         for threshold in [185, 170] {
-        let waypoints = waypointCandidates(markerDots(bytes, width, height, threshold: threshold))
+        let dots = markerDots(bytes, width, height, threshold: threshold)
+        let waypoints = waypointCandidates(Array(dots.prefix(96)))
         if waypoints.count < 2 { continue }
+        var pairs: [(Waypoint, Waypoint)] = []
+        for i in 0..<(waypoints.count - 1) { for j in (i + 1)..<waypoints.count {
+            let a = waypoints[i], b = waypoints[j], chord = hypot(a.x - b.x, a.y - b.y)
+            let ratio = chord / ((a.spacing + b.spacing) / 2)
+            if chord >= 90 && chord <= Double(max(width, height)) * 0.9 && ratio >= 32 && ratio <= 78 {
+                pairs.append((a, b))
+            }
+        }}
+        pairs.sort { $0.0.score + $0.1.score > $1.0.score + $1.1.score }
+        for pair in pairs.prefix(3) {
+            for (left, right) in [(pair.0, pair.1), (pair.1, pair.0)] {
+                let fitted = fitProjection(left, right, dots)
+                for step in 0...6 { for sign in [1.0, -1.0] { for axis in 0...1 {
+                    let dx = axis == 0 ? sign * Double(step) * 0.5 : 0
+                    let dy = axis == 1 ? sign * Double(step) * 0.5 : 0
+                    for extra in [0.0, 0.5, -0.5, 1, -1] {
+                        var adjusted = fitted; adjusted[0] += dx; adjusted[1] += dy + extra
+                        if let value = try? sampleProjection(bytes, width, height, adjusted) { return value }
+                    }
+                }}}
+            }
+        }
         for i in 0..<(waypoints.count - 1) { for j in (i + 1)..<waypoints.count {
             let a = waypoints[i], b = waypoints[j], chord = hypot(a.x - b.x, a.y - b.y)
             if chord < 90 || chord > Double(max(width, height)) * 0.9 { continue }
@@ -360,29 +475,32 @@ public enum AsterHaloPolar {
             context.fillEllipse(in: CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2))
         }
         func ridge(_ a: Double) -> Double {
-            0.235 + 0.012 * sin(5 * a + 0.65) + 0.008 * cos(9 * a - 0.9) + 0.004 * sin(17 * a + 0.35)
+            0.226 + 0.013 * sin(5 * a + 0.75) + 0.009 * cos(8 * a - 0.8) + 0.005 * sin(14 * a + 0.35)
         }
         context.setFillColor(color(4, 12, 22)); context.fill(CGRect(x: 0, y: 0, width: size, height: size))
         circle(s / 2, s / 2, s * 0.475, color(16, 35, 56))
-        let palette = [color(81,233,245), color(244,95,175), color(255,208,120), color(88,141,213)]
+        let palette = [color(69,216,242), color(240,81,176), color(240,200,108), color(98,174,232)]
         var random = Random32(0x6f0b91e2)
         for i in 0..<30000 {
             let a = random.unit() * 2 * Double.pi
             let v = random.unit() * 2 * Double.pi
-            let cross = sqrt(random.unit()) * 0.075
-            let fold = 0.004 * sin(13 * a + 2.2 * v) + 0.002 * cos(23 * a - 3 * v)
+            let volume = 0.062 + 0.014 * sin(4 * a - 0.6) + 0.008 * cos(7 * a + 1.1)
+            let cross = sqrt(random.unit()) * volume
+            let fold = 0.008 * sin(12 * a + 2.2 * v) + 0.003 * cos(22 * a - 3 * v)
             let r = ridge(a) + cross * cos(v) + fold
             let depth = cross * sin(v), angle = a + 0.011 * sin(7 * a + v)
             let x = s * (0.5 + r * cos(angle)), y = s * (0.5 + r * sin(angle) + depth * 0.48)
-            let band = min(3, Int(floor((sin(2.9 * a + 19 * r + v * 0.36) + 1) * 1.999)))
-            let light = 0.5 + 0.5 * max(0, sin(6 * a + v + r * 29))
-            let opacity = i % 89 == 0 ? 0.96 : 0.3 + light * 0.42
-            let dot = i % 89 == 0 ? 1.75 : i % 13 == 0 ? 1.12 : 0.58
+            let chroma = sin(2.8 * a + 2.2 * sin(v) + 7 * (r - ridge(a)))
+            let band = chroma > 0.38 ? 1 : chroma < -0.38 ? 0 : cos(4.8 * a + v) > 0 ? 3 : 2
+            let depthLight = 0.43 + 0.57 * (0.5 + 0.5 * cos(v - 0.65))
+            let light = (0.42 + 0.58 * max(0, sin(6 * a + v + r * 29))) * depthLight
+            let opacity = i % 137 == 0 ? 0.94 : 0.29 + light * 0.52
+            let dot = i % 137 == 0 ? 1.4 : i % 19 == 0 ? 0.94 : 0.5
             context.setAlpha(opacity)
             circle(x, y, dot * s / 800, palette[band])
         }
         context.setAlpha(1)
-        let dataColors = [color(163,238,242), color(255,180,221), color(255,225,161), color(145,185,227)]
+        let dataColors = [color(181,243,244), color(246,182,222), color(255,227,170), color(166,205,235)]
         for (i, slot) in slots.enumerated() {
             let x = slot.x * s, y = slot.y * s
             if bits[i] == 1 {
@@ -390,7 +508,7 @@ public enum AsterHaloPolar {
                 let band = min(3, Int(floor((sin(angle * 2.9 + Double(i) * 0.37) + 1) * 1.999)))
                 circle(x, y, (slot.ring ? 2.4 : 2.5) * s / 800, slot.ring ? color(195,233,233) : dataColors[band])
             } else {
-                circle(x, y, (slot.ring ? 1.8 : 2.65) * s / 800, slot.ring ? color(35,57,75) : color(32,57,74))
+                circle(x, y, (slot.ring ? 1.8 : 2.65) * s / 800, slot.ring ? color(38,56,70) : color(23,36,51))
             }
         }
         for base in [5 * Double.pi / 4, 7 * Double.pi / 4] { for offset in [-0.029, 0.0, 0.029] {

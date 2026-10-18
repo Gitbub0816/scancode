@@ -43,7 +43,8 @@ public final class AsterHaloPolar {
     }
     private static final class Waypoint {
         final double x,y,score,spacing;
-        Waypoint(double x,double y,double score,double spacing){this.x=x;this.y=y;this.score=score;this.spacing=spacing;}
+        final Dot[] dots;
+        Waypoint(double x,double y,double score,double spacing,Dot[] dots){this.x=x;this.y=y;this.score=score;this.spacing=spacing;this.dots=dots;}
     }
 
     private static Slot[] slots() {
@@ -132,23 +133,27 @@ public final class AsterHaloPolar {
         canvas.drawColor(0xff040c16);
         paint.setColor(0xff102338);canvas.drawCircle(size/2f,size/2f,size*.475f,paint);
         Random32 random=new Random32(0x6f0b91e2);
-        int[] palette={0xff51e9f5,0xfff45faf,0xffffd078,0xff588dd5};
+        int[] palette={0xff45d8f2,0xfff051b0,0xfff0c86c,0xff62aee8};
         for(int i=0;i<30000;i++) {
             double a=random.unit()*2*Math.PI,v=random.unit()*2*Math.PI;
-            double cross=Math.sqrt(random.unit())*.075;
-            double fold=.004*Math.sin(13*a+2.2*v)+.002*Math.cos(23*a-3*v);
-            double r=.235+.012*Math.sin(5*a+.65)+.008*Math.cos(9*a-.9)+.004*Math.sin(17*a+.35)+cross*Math.cos(v)+fold;
+            double volume=.062+.014*Math.sin(4*a-.6)+.008*Math.cos(7*a+1.1);
+            double cross=Math.sqrt(random.unit())*volume;
+            double fold=.008*Math.sin(12*a+2.2*v)+.003*Math.cos(22*a-3*v);
+            double ridge=.226+.013*Math.sin(5*a+.75)+.009*Math.cos(8*a-.8)+.005*Math.sin(14*a+.35);
+            double r=ridge+cross*Math.cos(v)+fold;
             double depth=cross*Math.sin(v),angle=a+.011*Math.sin(7*a+v);
             float x=(float)(size*(.5+r*Math.cos(angle))),y=(float)(size*(.5+r*Math.sin(angle)+depth*.48));
-            int band=Math.min(3,(int)Math.floor((Math.sin(2.9*a+19*r+v*.36)+1)*1.999));
-            double light=.5+.5*Math.max(0,Math.sin(6*a+v+r*29));
-            double opacity=i%89==0?.96:.3+light*.42;
-            float dot=(float)(i%89==0?1.75:i%13==0?1.12:.58);
+            double chroma=Math.sin(2.8*a+2.2*Math.sin(v)+7*(r-ridge));
+            int band=chroma>.38?1:chroma<-.38?0:Math.cos(4.8*a+v)>0?3:2;
+            double depthLight=.43+.57*(.5+.5*Math.cos(v-.65));
+            double light=(.42+.58*Math.max(0,Math.sin(6*a+v+r*29)))*depthLight;
+            double opacity=i%137==0?.94:.29+light*.52;
+            float dot=(float)(i%137==0?1.4:i%19==0?.94:.5);
             paint.setColor(palette[band]);paint.setAlpha((int)(opacity*255));
             canvas.drawCircle(x,y,dot*size/800f,paint);
         }
         paint.setAlpha(255);
-        int[] dataColors={0xffa3eef2,0xffffb4dd,0xffffe1a1,0xff91b9e3};
+        int[] dataColors={0xffb5f3f4,0xfff6b6de,0xffffe3aa,0xffa6cdeb};
         for(int i=0;i<BITS;i++) {
             Slot slot=SLOTS[i];
             float x=(float)(slot.x*size),y=(float)(slot.y*size);
@@ -158,7 +163,7 @@ public final class AsterHaloPolar {
                 paint.setColor(slot.ring?0xffc3e9e9:dataColors[band]);
                 canvas.drawCircle(x,y,(slot.ring?2.4f:2.5f)*size/800f,paint);
             } else {
-                paint.setColor(slot.ring?0xff23394b:0xff20394a);
+                paint.setColor(slot.ring?0xff263846:0xff172433);
                 canvas.drawCircle(x,y,(slot.ring?1.8f:2.65f)*size/800f,paint);
             }
         }
@@ -182,8 +187,8 @@ public final class AsterHaloPolar {
         byte[] bits=encodeBits(payload);
         Bitmap image=Bitmap.createBitmap(size,size,Bitmap.Config.ARGB_8888);
         Canvas canvas=new Canvas(image);Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-        int[] dataColors={0xffa3eef2,0xffffb4dd,0xffffe1a1,0xff91b9e3};
-        for(Slot slot:SLOTS)if(!slot.ring){paint.setColor(0xff20394a);canvas.drawCircle((float)(slot.x*size),(float)(slot.y*size),2.65f*size/800f,paint);}
+        int[] dataColors={0xffb5f3f4,0xfff6b6de,0xffffe3aa,0xffa6cdeb};
+        for(Slot slot:SLOTS)if(!slot.ring){paint.setColor(0xff172433);canvas.drawCircle((float)(slot.x*size),(float)(slot.y*size),2.65f*size/800f,paint);}
         for(int i=0;i<BITS;i++) {
             Slot slot=SLOTS[i];float x=(float)(slot.x*size),y=(float)(slot.y*size);
             if(bits[i]==1){
@@ -192,7 +197,7 @@ public final class AsterHaloPolar {
                 paint.setColor(slot.ring?0xffc3e9e9:dataColors[band]);
                 canvas.drawCircle(x,y,(slot.ring?2.4f:2.5f)*size/800f,paint);
             }else{
-                paint.setColor(slot.ring?0xff23394b:0xff20394a);
+                paint.setColor(slot.ring?0xff263846:0xff172433);
                 canvas.drawCircle(x,y,(slot.ring?1.8f:2.65f)*size/800f,paint);
             }
         }
@@ -230,7 +235,7 @@ public final class AsterHaloPolar {
             dots.add(new Dot((double)sumX/area,(double)sumY/area,area));
         }
         dots.sort(Comparator.comparingInt((Dot dot)->dot.area).reversed());
-        return dots.subList(0,Math.min(96,dots.size()));
+        return dots.subList(0,Math.min(192,dots.size()));
     }
 
     private static List<Waypoint> waypointCandidates(List<Dot> dots) {
@@ -249,11 +254,106 @@ public final class AsterHaloPolar {
                 if(offset>Math.max(2.6,.24*Math.max(da,db)))continue;
                 double x=(a.x+middle.x+b.x)/3,y=(a.y+middle.y+b.y)/3;
                 boolean duplicate=false;for(Waypoint w:found)if(Math.hypot(w.x-x,w.y-y)<5){duplicate=true;break;}
-                if(!duplicate)found.add(new Waypoint(x,y,a.area+middle.area+b.area-offset*2,(da+db)/2));
+                if(!duplicate)found.add(new Waypoint(x,y,a.area+middle.area+b.area-offset*2,(da+db)/2,new Dot[]{a,middle,b}));
             }
         }
         found.sort(Comparator.comparingDouble((Waypoint w)->w.score).reversed());
         return found.subList(0,Math.min(16,found.size()));
+    }
+
+    private static double[] project(double[] p,double u,double v) {
+        double c=Math.cos(p[4]),s=Math.sin(p[4]),den=1+p[5]*v;
+        return new double[]{p[0]+(p[2]*u*c-p[3]*v*s)/den,p[1]+(p[2]*u*s+p[3]*v*c)/den};
+    }
+
+    private static double[] inverse(double[] p,double x,double y) {
+        double c=Math.cos(p[4]),s=Math.sin(p[4]),dx=x-p[0],dy=y-p[1];
+        double uu=c*dx+s*dy,vv=-s*dx+c*dy,v=vv/(p[3]-p[5]*vv);
+        return new double[]{uu*(1+p[5]*v)/p[2],v};
+    }
+
+    private static double fitLoss(double[] p,Dot[] observed,double[][] source,List<Dot> ring) {
+        if(p[2]<100||p[3]<100||Math.abs(p[5])>1.5)return 1e15;
+        double sum=0;
+        for(int i=0;i<6;i++) {
+            double[] xy=project(p,source[i][0],source[i][1]);
+            sum+=.5*(Math.pow(xy[0]-observed[i].x,2)+Math.pow(xy[1]-observed[i].y,2));
+        }
+        for(Dot dot:ring) {
+            double[] uv=inverse(p,dot.x,dot.y);double e=(Math.hypot(uv[0],uv[1])-.42)*1000;
+            sum+=Math.min(e*e,4000);
+        }
+        return sum;
+    }
+
+    private static double[] fitProjection(Waypoint left,Waypoint right,List<Dot> dots) {
+        double chord=Math.hypot(right.x-left.x,right.y-left.y);
+        double angle=Math.atan2(right.y-left.y,right.x-left.x),size=chord/(.42*Math.sqrt(2));
+        double midX=(left.x+right.x)/2,midY=(left.y+right.y)/2;
+        double[] initial={midX-.297*size*Math.sin(angle),midY+.297*size*Math.cos(angle),size,size,angle,0};
+        double axisX=(right.x-left.x)/chord,axisY=(right.y-left.y)/chord;
+        Dot[] ld=left.dots.clone(),rd=right.dots.clone();
+        Comparator<Dot> along=Comparator.comparingDouble(d->d.x*axisX+d.y*axisY);
+        Arrays.sort(ld,along);Arrays.sort(rd,along);
+        Dot[] observed={ld[0],ld[1],ld[2],rd[0],rd[1],rd[2]};
+        double[][] source=new double[6][2];int n=0;
+        for(double base:new double[]{5*Math.PI/4,7*Math.PI/4})for(double offset:new double[]{-.029,0,.029}) {
+            source[n++]=new double[]{.42*Math.cos(base+offset),.42*Math.sin(base+offset)};
+        }
+        List<Dot> ring=new ArrayList<>();
+        for(Dot dot:dots) {
+            double[] uv=inverse(initial,dot.x,dot.y);double radius=Math.hypot(uv[0],uv[1]);
+            if(radius>.34&&radius<.52&&dot.area<Math.max(50,left.score/2))ring.add(dot);
+        }
+        double[][] simplex=new double[7][];double[] values=new double[7];
+        simplex[0]=initial;
+        double[] steps={4,4,8,8,.007,.04};
+        for(int i=0;i<6;i++){simplex[i+1]=initial.clone();simplex[i+1][i]+=steps[i];}
+        for(int i=0;i<7;i++)values[i]=fitLoss(simplex[i],observed,source,ring);
+        for(int iteration=0;iteration<450;iteration++) {
+            Integer[] order={0,1,2,3,4,5,6};
+            final double[] ranking=values;
+            Arrays.sort(order,Comparator.comparingDouble(i->ranking[i]));
+            double[][] sorted=new double[7][];double[] sortedValues=new double[7];
+            for(int i=0;i<7;i++){sorted[i]=simplex[order[i]];sortedValues[i]=values[order[i]];}
+            simplex=sorted;values=sortedValues;
+            double[] center=new double[6];
+            for(int i=0;i<6;i++)for(int j=0;j<6;j++)center[j]+=simplex[i][j]/6;
+            double[] reflected=trial(center,simplex[6],1);
+            double reflectedLoss=fitLoss(reflected,observed,source,ring);
+            if(reflectedLoss<values[0]) {
+                double[] expanded=trial(center,simplex[6],2);
+                double expandedLoss=fitLoss(expanded,observed,source,ring);
+                simplex[6]=expandedLoss<reflectedLoss?expanded:reflected;
+                values[6]=Math.min(expandedLoss,reflectedLoss);
+            } else if(reflectedLoss<values[5]) {simplex[6]=reflected;values[6]=reflectedLoss;}
+            else {
+                double[] contracted=trial(center,simplex[6],reflectedLoss<values[6] ? .5 : -.5);
+                double contractedLoss=fitLoss(contracted,observed,source,ring);
+                if(contractedLoss<Math.min(reflectedLoss,values[6])) {simplex[6]=contracted;values[6]=contractedLoss;}
+                else for(int i=1;i<7;i++) {
+                    double[] half=new double[6];for(int j=0;j<6;j++)half[j]=(simplex[0][j]+simplex[i][j])/2;
+                    simplex[i]=half;values[i]=fitLoss(half,observed,source,ring);
+                }
+            }
+        }
+        int best=0;for(int i=1;i<7;i++)if(values[i]<values[best])best=i;
+        return simplex[best];
+    }
+
+    private static double[] trial(double[] center,double[] worst,double factor) {
+        double[] result=new double[6];for(int j=0;j<6;j++)result[j]=center[j]+factor*(center[j]-worst[j]);return result;
+    }
+
+    private static String sampleProjection(int[] pixels,int width,int height,double[] p) {
+        byte[] bits=new byte[BITS];
+        for(int i=0;i<BITS;i++) {
+            double[] xy=project(p,SLOTS[i].x-.5,SLOTS[i].y-.5);
+            int x=(int)Math.round(xy[0]),y=(int)Math.round(xy[1]);
+            if(x<0||y<0||x>=width||y>=height)throw new IllegalArgumentException("symbol outside frame");
+            bits[i]=(byte)(luma(pixels[y*width+x])>105?1:0);
+        }
+        return decodeBits(bits);
     }
 
     private static String sample(int[] pixels,int width,int height,Waypoint a,Waypoint b,double q,double offsetX,double offsetY) {
@@ -278,7 +378,26 @@ public final class AsterHaloPolar {
         double[] ratios={1,.66,.662,.75,.8,.9,1.1};
         double[][] offsets={{0,0},{0,.5},{0,-.5},{-.5,0},{.5,0},{-.5,-.5},{.5,.5},{-.5,.5},{.5,-.5}};
         for(int threshold:new int[]{185,170}) {
-        List<Waypoint> points=waypointCandidates(markerDots(pixels,width,height,threshold));
+        List<Dot> dots=markerDots(pixels,width,height,threshold);
+        List<Waypoint> points=waypointCandidates(dots.subList(0,Math.min(96,dots.size())));
+        List<Waypoint[]> pairs=new ArrayList<>();
+        for(int i=0;i<points.size();i++)for(int j=i+1;j<points.size();j++) {
+            Waypoint a=points.get(i),b=points.get(j);double chord=Math.hypot(a.x-b.x,a.y-b.y);
+            double ratio=chord/((a.spacing+b.spacing)/2);
+            if(chord>=90&&chord<=Math.max(width,height)*.9&&ratio>=32&&ratio<=78)pairs.add(new Waypoint[]{a,b});
+        }
+        pairs.sort(Comparator.comparingDouble((Waypoint[] pair)->pair[0].score+pair[1].score).reversed());
+        for(int pi=0;pi<Math.min(3,pairs.size());pi++)for(int order=0;order<2;order++) {
+            Waypoint left=pairs.get(pi)[order],right=pairs.get(pi)[1-order];
+            double[] fitted=fitProjection(left,right,dots);
+            for(int step=0;step<=6;step++)for(int sign:new int[]{1,-1})for(int axis=0;axis<2;axis++) {
+                double dx=axis==0 ? sign*step*.5 : 0,dy=axis==1 ? sign*step*.5 : 0;
+                for(double extra:new double[]{0,.5,-.5,1,-1}) {
+                    double[] adjusted=fitted.clone();adjusted[0]+=dx;adjusted[1]+=dy+extra;
+                    try{return sampleProjection(pixels,width,height,adjusted);}catch(Exception ignored){}
+                }
+            }
+        }
         for(int i=0;i<points.size();i++)for(int j=i+1;j<points.size();j++) {
             Waypoint first=points.get(i),second=points.get(j);double chord=Math.hypot(first.x-second.x,first.y-second.y);
             if(chord<90||chord>Math.max(width,height)*.9)continue;

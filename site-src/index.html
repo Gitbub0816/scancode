@@ -50,11 +50,11 @@
     .scene { position: relative; width: 100%; height: min(76vh, 850px); min-height: 550px; display: flex; align-items: center; justify-content: center; isolation: isolate; overflow: hidden; background: #111d27; border: 1px solid #34434a; }
     .scene::before { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse at 30% 9%, #9bc7cf3b, transparent 35%), radial-gradient(ellipse at 88% 86%, #afbed023, transparent 38%), linear-gradient(132deg, #213541 0%, #152633 25%, #101e2b 59%, #233746 100%); z-index: -2; }
     .scene::after { content: ""; position: absolute; inset: 3% 2% 2%; border: 1px solid #b8e7ea12; box-shadow: 0 25px 60px #02080ca8, inset 0 1px #d5f9fa13; transform: perspective(1100px) rotateX(6deg) rotateZ(-2deg); z-index: -1; }
-    .artifact { width: min(88%, 720px, 76vh); aspect-ratio: 1; position: relative; filter: drop-shadow(0 28px 42px #0009); }
+    .artifact { width: min(88%, 720px, 76vh); aspect-ratio: 1; position: relative; transform: perspective(1100px) rotateX(22deg) rotateZ(-3deg); filter: drop-shadow(0 28px 42px #0009); }
     #preview, #preview iframe, #preview svg { display: block; width: 100%; height: 100%; border: 0; }
     .scene.scan-flat { background: #08131d; }
     .scene.scan-flat::before, .scene.scan-flat::after { display: none; }
-    .scene.scan-flat .artifact { width: min(96%, 850px, 84vh); filter: none; }
+    .scene.scan-flat .artifact { width: min(96%, 850px, 84vh); transform: none; filter: none; }
     .stage-note { display: flex; justify-content: space-between; gap: 20px; margin: 11px 0 25px; color: #85999b; font-size: 10px; letter-spacing: .05em; text-transform: uppercase; }
     .stage-note strong { font-weight: 600; color: #a6c1c3; }
     .panel { border-top: 1px solid var(--line); padding: 23px 0 28px; display: grid; grid-template-columns: 165px minmax(0, 1fr); gap: 22px; }
@@ -74,7 +74,7 @@
     .camera-wrap:has(video[hidden]) .guide { display: none; }
     #scan-result { margin-top: 11px; color: #c7eced; font-size: 12px; overflow-wrap: anywhere; }
     .scene:fullscreen { width: 100vw; height: 100vh; height: 100dvh; min-height: 0; border: 0; }
-    .scene:fullscreen .artifact { width: min(96vw, 96vh); filter: none; }
+    .scene:fullscreen .artifact { width: min(96vw, 96vh); transform: none; filter: none; }
     .scene:fullscreen::before, .scene:fullscreen::after { display: none; }
     @media(max-width: 900px) { .shell { grid-template-columns: 292px minmax(0,1fr); } .sidebar { padding: 24px 20px; } .workspace { padding: 0 20px 28px; } .scene { min-height: 470px; } .panel { grid-template-columns: 120px 1fr; } }
     @media(max-width: 720px) { .shell { display: block; } .sidebar { border-right: 0; border-bottom: 1px solid var(--line); gap: 25px; } .sidebar-foot { display: none; } .sidebar h1 { font-size: 21px; } .lede { margin-bottom: 20px; max-width: none; } .workspace-top { min-height: 66px; } .scene { min-height: 0; height: auto; aspect-ratio: 1; } .artifact { width: 96%; } .stage-note { margin-bottom: 22px; } }
