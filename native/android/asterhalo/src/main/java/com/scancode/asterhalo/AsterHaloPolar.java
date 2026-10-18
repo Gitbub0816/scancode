@@ -258,7 +258,7 @@ public final class AsterHaloPolar {
             }
         }
         found.sort(Comparator.comparingDouble((Waypoint w)->w.score).reversed());
-        return found.subList(0,Math.min(16,found.size()));
+        return found.subList(0,Math.min(64,found.size()));
     }
 
     private static double[] project(double[] p,double u,double v) {
@@ -270,6 +270,21 @@ public final class AsterHaloPolar {
         double c=Math.cos(p[4]),s=Math.sin(p[4]),dx=x-p[0],dy=y-p[1];
         double uu=c*dx+s*dy,vv=-s*dx+c*dy,v=vv/(p[3]-p[5]*vv);
         return new double[]{uu*(1+p[5]*v)/p[2],v};
+    }
+
+    private static double[] initialProjection(Waypoint left,Waypoint right) {
+        double chord=Math.hypot(right.x-left.x,right.y-left.y);
+        double angle=Math.atan2(right.y-left.y,right.x-left.x),size=chord/(.42*Math.sqrt(2));
+        return new double[]{(left.x+right.x)/2-.297*size*Math.sin(angle),
+                (left.y+right.y)/2+.297*size*Math.cos(angle),size,size,angle,0};
+    }
+
+    private static boolean projectionInside(double[] p,int width,int height) {
+        for(double[] uv:new double[][]{{.42,0},{-.42,0},{0,.42},{0,-.42}}) {
+            double[] xy=project(p,uv[0],uv[1]);
+            if(xy[0]<0||xy[1]<0||xy[0]>=width||xy[1]>=height)return false;
+        }
+        return true;
     }
 
     private static double fitLoss(double[] p,Dot[] observed,double[][] source,List<Dot> ring) {
@@ -386,6 +401,53 @@ public final class AsterHaloPolar {
         return score;
     }
 
+    private static double fieldVariance(int[] pixels,int width,int height,double[] p) {
+        double sum=0,squares=0;
+        for(Slot slot:SLOTS) {
+            double[] xy=project(p,slot.x-.5,slot.y-.5);
+            int x=(int)Math.round(xy[0]),y=(int)Math.round(xy[1]);
+            if(x<0||y<0||x>=width||y>=height)return Double.NEGATIVE_INFINITY;
+            double value=luma(pixels[y*width+x]);sum+=value;squares+=value*value;
+        }
+        double mean=sum/BITS;
+        return squares/BITS-mean*mean;
+    }
+
+    private static double[] refineProjection(int[] pixels,int width,int height,double[] initial) {
+        double[][] simplex=new double[7][];double[] values=new double[7];simplex[0]=initial;
+        double[] steps={2,2,4,4,.005,.03};
+        for(int i=0;i<6;i++){simplex[i+1]=initial.clone();simplex[i+1][i]+=steps[i];}
+        for(int i=0;i<7;i++)values[i]=-fieldVariance(pixels,width,height,simplex[i]);
+        for(int iteration=0;iteration<600;iteration++) {
+            Integer[] order={0,1,2,3,4,5,6};final double[] ranking=values;
+            Arrays.sort(order,Comparator.comparingDouble(i->ranking[i]));
+            double[][] sorted=new double[7][];double[] sortedValues=new double[7];
+            for(int i=0;i<7;i++){sorted[i]=simplex[order[i]];sortedValues[i]=values[order[i]];}
+            simplex=sorted;values=sortedValues;
+            double[] center=new double[6];
+            for(int i=0;i<6;i++)for(int j=0;j<6;j++)center[j]+=simplex[i][j]/6;
+            double[] reflected=trial(center,simplex[6],1);
+            double reflectedLoss=-fieldVariance(pixels,width,height,reflected);
+            if(reflectedLoss<values[0]) {
+                double[] expanded=trial(center,simplex[6],2);
+                double expandedLoss=-fieldVariance(pixels,width,height,expanded);
+                simplex[6]=expandedLoss<reflectedLoss?expanded:reflected;
+                values[6]=Math.min(expandedLoss,reflectedLoss);
+            } else if(reflectedLoss<values[5]) {simplex[6]=reflected;values[6]=reflectedLoss;}
+            else {
+                double[] contracted=trial(center,simplex[6],reflectedLoss<values[6] ? .5 : -.5);
+                double loss=-fieldVariance(pixels,width,height,contracted);
+                if(loss<Math.min(reflectedLoss,values[6])) {simplex[6]=contracted;values[6]=loss;}
+                else for(int i=1;i<7;i++) {
+                    double[] half=new double[6];for(int j=0;j<6;j++)half[j]=(simplex[0][j]+simplex[i][j])/2;
+                    simplex[i]=half;values[i]=-fieldVariance(pixels,width,height,half);
+                }
+            }
+        }
+        int best=0;for(int i=1;i<7;i++)if(values[i]<values[best])best=i;
+        return simplex[best];
+    }
+
     private static String sampleProjection(int[] pixels,int width,int height,double[] p) {
         byte[] bits=new byte[BITS];
         for(int i=0;i<BITS;i++) {
@@ -420,12 +482,13 @@ public final class AsterHaloPolar {
         double[][] offsets={{0,0},{0,.5},{0,-.5},{-.5,0},{.5,0},{-.5,-.5},{.5,.5},{-.5,.5},{.5,-.5}};
         for(int threshold:new int[]{185,170}) {
         List<Dot> dots=markerDots(pixels,width,height,threshold);
-        List<Waypoint> points=waypointCandidates(dots.subList(0,Math.min(96,dots.size())));
+        List<Waypoint> points=waypointCandidates(dots);
         List<Waypoint[]> pairs=new ArrayList<>();
         for(int i=0;i<points.size();i++)for(int j=i+1;j<points.size();j++) {
             Waypoint a=points.get(i),b=points.get(j);double chord=Math.hypot(a.x-b.x,a.y-b.y);
             double ratio=chord/((a.spacing+b.spacing)/2);
-            if(chord>=90&&chord<=Math.max(width,height)*.9&&ratio>=32&&ratio<=78&&waypointGeometry(a,b))pairs.add(new Waypoint[]{a,b});
+            if(chord>=90&&chord<=Math.max(width,height)*.9&&ratio>=32&&ratio<=78&&waypointGeometry(a,b)&&
+                    (projectionInside(initialProjection(a,b),width,height)||projectionInside(initialProjection(b,a),width,height)))pairs.add(new Waypoint[]{a,b});
         }
         pairs.sort(Comparator.comparingInt((Waypoint[] pair)->ringSupport(pair[0],pair[1],dots)).reversed());
         for(int pi=0;pi<Math.min(3,pairs.size());pi++)for(int order=0;order<2;order++) {
@@ -445,6 +508,13 @@ public final class AsterHaloPolar {
                         double[] adjusted=angled.clone();adjusted[0]+=dx;adjusted[1]+=dy+extra;
                         try{return sampleProjection(pixels,width,height,adjusted);}catch(Exception ignored){}
                     }
+                }
+            }
+            if(projectionInside(fitted,width,height)) {
+                double[] refined=refineProjection(pixels,width,height,fitted);
+                for(int ai=-4;ai<=4;ai++)for(int xi=-2;xi<=2;xi++)for(int yi=-2;yi<=2;yi++) {
+                    double[] adjusted=refined.clone();adjusted[0]+=xi*.5;adjusted[1]+=yi*.5;adjusted[4]+=ai*.001;
+                    try{return sampleProjection(pixels,width,height,adjusted);}catch(Exception ignored){}
                 }
             }
         }

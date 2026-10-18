@@ -298,7 +298,7 @@ public enum AsterHaloPolar {
                 found.append(Waypoint(x: x, y: y, score: Double(a.area + middle.area + b.area) - offset * 2, spacing: (da + db) / 2, dots: [a, middle, b]))
             }}
         }
-        return Array(found.sorted(by: { $0.score > $1.score }).prefix(16))
+        return Array(found.sorted(by: { $0.score > $1.score }).prefix(64))
     }
 
     private static func project(_ p: [Double], _ u: Double, _ v: Double) -> (Double, Double) {
@@ -312,6 +312,22 @@ public enum AsterHaloPolar {
         let uu = c * dx + s * dy, vv = -s * dx + c * dy
         let v = vv / (p[3] - p[5] * vv)
         return (uu * (1 + p[5] * v) / p[2], v)
+    }
+
+    private static func initialProjection(_ left: Waypoint, _ right: Waypoint) -> [Double] {
+        let chord = hypot(right.x - left.x, right.y - left.y)
+        let angle = atan2(right.y - left.y, right.x - left.x)
+        let size = chord / (0.42 * sqrt(2.0))
+        return [(left.x + right.x) / 2 - 0.297 * size * sin(angle),
+                (left.y + right.y) / 2 + 0.297 * size * cos(angle), size, size, angle, 0]
+    }
+
+    private static func projectionInside(_ p: [Double], _ width: Int, _ height: Int) -> Bool {
+        for (u, v) in [(0.42, 0.0), (-0.42, 0.0), (0.0, 0.42), (0.0, -0.42)] {
+            let (x, y) = project(p, u, v)
+            if x < 0 || y < 0 || x >= Double(width) || y >= Double(height) { return false }
+        }
+        return true
     }
 
     private static func fitLoss(_ p: [Double], _ observed: [MarkerDot], _ source: [(Double, Double)], _ ring: [MarkerDot]) -> Double {
@@ -426,6 +442,53 @@ public enum AsterHaloPolar {
         return score
     }
 
+    private static func fieldVariance(_ bytes: [UInt8], _ width: Int, _ height: Int, _ p: [Double]) -> Double {
+        var sum = 0.0, squares = 0.0
+        for slot in slots {
+            let (x, y) = project(p, slot.x - 0.5, slot.y - 0.5)
+            let xx = Int(x.rounded()), yy = Int(y.rounded())
+            if xx < 0 || yy < 0 || xx >= width || yy >= height { return -.infinity }
+            let value = Double(luminance(bytes, width, xx, yy))
+            sum += value; squares += value * value
+        }
+        let mean = sum / Double(slots.count)
+        return squares / Double(slots.count) - mean * mean
+    }
+
+    private static func refineProjection(_ bytes: [UInt8], _ width: Int, _ height: Int, _ initial: [Double]) -> [Double] {
+        var simplex = [initial], values: [Double] = []
+        let steps = [2.0, 2.0, 4.0, 4.0, 0.005, 0.03]
+        for i in 0..<6 { var p = initial; p[i] += steps[i]; simplex.append(p) }
+        values = simplex.map { -fieldVariance(bytes, width, height, $0) }
+        for _ in 0..<600 {
+            let order = (0..<7).sorted { values[$0] < values[$1] }
+            simplex = order.map { simplex[$0] }; values = order.map { values[$0] }
+            var center = [Double](repeating: 0, count: 6)
+            for i in 0..<6 { for j in 0..<6 { center[j] += simplex[i][j] / 6 } }
+            func trial(_ factor: Double) -> [Double] { (0..<6).map { center[$0] + factor * (center[$0] - simplex[6][$0]) } }
+            let reflected = trial(1), reflectedLoss = -fieldVariance(bytes, width, height, reflected)
+            if reflectedLoss < values[0] {
+                let expanded = trial(2), expandedLoss = -fieldVariance(bytes, width, height, expanded)
+                simplex[6] = expandedLoss < reflectedLoss ? expanded : reflected
+                values[6] = min(expandedLoss, reflectedLoss)
+            } else if reflectedLoss < values[5] {
+                simplex[6] = reflected; values[6] = reflectedLoss
+            } else {
+                let contracted = trial(reflectedLoss < values[6] ? 0.5 : -0.5)
+                let loss = -fieldVariance(bytes, width, height, contracted)
+                if loss < min(reflectedLoss, values[6]) {
+                    simplex[6] = contracted; values[6] = loss
+                } else {
+                    for i in 1..<7 {
+                        simplex[i] = (0..<6).map { (simplex[0][$0] + simplex[i][$0]) / 2 }
+                        values[i] = -fieldVariance(bytes, width, height, simplex[i])
+                    }
+                }
+            }
+        }
+        return simplex[values.enumerated().min(by: { $0.element < $1.element })!.offset]
+    }
+
     private static func sampleProjection(_ bytes: [UInt8], _ width: Int, _ height: Int, _ p: [Double]) throws -> String {
         var bits = [UInt8](repeating: 0, count: bitCount)
         for i in 0..<bitCount {
@@ -466,13 +529,14 @@ public enum AsterHaloPolar {
         let offsets: [(Double, Double)] = [(0,0),(0,0.5),(0,-0.5),(-0.5,0),(0.5,0),(-0.5,-0.5),(0.5,0.5),(-0.5,0.5),(0.5,-0.5)]
         for threshold in [185, 170] {
         let dots = markerDots(bytes, width, height, threshold: threshold)
-        let waypoints = waypointCandidates(Array(dots.prefix(96)))
+        let waypoints = waypointCandidates(dots)
         if waypoints.count < 2 { continue }
         var pairs: [(Waypoint, Waypoint)] = []
         for i in 0..<(waypoints.count - 1) { for j in (i + 1)..<waypoints.count {
             let a = waypoints[i], b = waypoints[j], chord = hypot(a.x - b.x, a.y - b.y)
             let ratio = chord / ((a.spacing + b.spacing) / 2)
-            if chord >= 90 && chord <= Double(max(width, height)) * 0.9 && ratio >= 32 && ratio <= 78 && waypointGeometry(a, b) {
+            if chord >= 90 && chord <= Double(max(width, height)) * 0.9 && ratio >= 32 && ratio <= 78 && waypointGeometry(a, b) &&
+                (projectionInside(initialProjection(a, b), width, height) || projectionInside(initialProjection(b, a), width, height)) {
                 pairs.append((a, b))
             }
         }}
@@ -492,6 +556,16 @@ public enum AsterHaloPolar {
                             var adjusted = angle.0; adjusted[0] += dx; adjusted[1] += dy + extra
                             if let value = try? sampleProjection(bytes, width, height, adjusted) { return value }
                         }
+                    }}}
+                }
+                if projectionInside(fitted, width, height) {
+                    let refined = refineProjection(bytes, width, height, fitted)
+                    for ai in -4...4 { for xi in -2...2 { for yi in -2...2 {
+                        var adjusted = refined
+                        adjusted[0] += Double(xi) * 0.5
+                        adjusted[1] += Double(yi) * 0.5
+                        adjusted[4] += Double(ai) * 0.001
+                        if let value = try? sampleProjection(bytes, width, height, adjusted) { return value }
                     }}}
                 }
             }

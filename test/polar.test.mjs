@@ -80,7 +80,7 @@ test('reader recovers the supplied perspective-distorted studio capture', async 
 });
 
 test('reader ignores page text and reads both live presentation views', async () => {
-  for (const name of ['studio', 'scan']) {
+  for (const name of ['studio', 'scan', 'plume-studio']) {
     const fixture = fileURLToPath(new URL(`./fixtures/v3-live-${name}.jpg`, import.meta.url));
     const { data, info } = await sharp(fixture).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     assert.equal(decodePolarFrame(data, info.width, info.height)?.payload,

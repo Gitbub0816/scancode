@@ -71,7 +71,7 @@ function waypointCandidates(dots: Dot[]): Waypoint[] {
       found.push({ x, y, score: a.area + m.area + b.area - offset * 2, spacing: (da + db) / 2, dots: [a, m, b] });
     }
   }
-  return found.sort((a, b) => b.score - a.score).slice(0, 16);
+  return found.sort((a, b) => b.score - a.score).slice(0, 64);
 }
 
 type Projection = [number, number, number, number, number, number];
@@ -92,12 +92,25 @@ function inverse(p: Projection, x: number, y: number): [number, number] {
 }
 
 /** Fit the visible data circle as a projected circle, using the six waypoint dots to fix its rotation. */
-function fitProjection(left: Waypoint, right: Waypoint, dots: Dot[]): Projection {
+function initialProjection(left: Waypoint, right: Waypoint): Projection {
   const chord = Math.hypot(right.x - left.x, right.y - left.y);
   const angle = Math.atan2(right.y - left.y, right.x - left.x);
   const sx = chord / (.42 * Math.SQRT2);
   const midX = (left.x + right.x) / 2, midY = (left.y + right.y) / 2;
-  const initial: Projection = [midX - .297 * sx * Math.sin(angle), midY + .297 * sx * Math.cos(angle), sx, sx, angle, 0];
+  return [midX - .297 * sx * Math.sin(angle), midY + .297 * sx * Math.cos(angle), sx, sx, angle, 0];
+}
+
+function projectionInside(p: Projection, width: number, height: number): boolean {
+  for (const [u, v] of [[.42, 0], [-.42, 0], [0, .42], [0, -.42]]) {
+    const [x, y] = project(p, u, v);
+    if (x < 0 || y < 0 || x >= width || y >= height) return false;
+  }
+  return true;
+}
+
+function fitProjection(left: Waypoint, right: Waypoint, dots: Dot[]): Projection {
+  const initial = initialProjection(left, right);
+  const chord = Math.hypot(right.x - left.x, right.y - left.y);
   const axisX = (right.x - left.x) / chord, axisY = (right.y - left.y) / chord;
   const ordered = (point: Waypoint) => [...point.dots].sort((a, b) =>
     (a.x * axisX + a.y * axisY) - (b.x * axisX + b.y * axisY));
@@ -163,11 +176,7 @@ function fitProjection(left: Waypoint, right: Waypoint, dots: Dot[]): Projection
 }
 
 function ringSupport(left: Waypoint, right: Waypoint, dots: Dot[]): number {
-  const chord = Math.hypot(right.x - left.x, right.y - left.y);
-  const angle = Math.atan2(right.y - left.y, right.x - left.x);
-  const size = chord / (.42 * Math.SQRT2);
-  const p: Projection = [(left.x + right.x) / 2 - .297 * size * Math.sin(angle),
-    (left.y + right.y) / 2 + .297 * size * Math.cos(angle), size, size, angle, 0];
+  const p = initialProjection(left, right);
   const sectors = new Uint8Array(16);
   let count = 0;
   for (const dot of dots) {
@@ -220,6 +229,59 @@ function fieldContrast(rgba: ArrayLike<number>, width: number, height: number, p
   return score;
 }
 
+function fieldVariance(rgba: ArrayLike<number>, width: number, height: number, p: Projection): number {
+  let sum = 0, squares = 0;
+  const slots = getPolarSlots();
+  for (const slot of slots) {
+    const [x, y] = project(p, slot.x - .5, slot.y - .5);
+    const xx = Math.round(x), yy = Math.round(y);
+    if (xx < 0 || yy < 0 || xx >= width || yy >= height) return -Infinity;
+    const value = luminance(rgba, width, xx, yy);
+    sum += value; squares += value * value;
+  }
+  const mean = sum / slots.length;
+  return squares / slots.length - mean * mean;
+}
+
+function refineProjection(rgba: ArrayLike<number>, width: number, height: number, initial: Projection): Projection {
+  const simplex: Projection[] = [initial];
+  const step = [2, 2, 4, 4, .005, .03];
+  for (let i = 0; i < 6; i++) {
+    const trial = [...initial] as Projection;
+    trial[i] += step[i];
+    simplex.push(trial);
+  }
+  let values = simplex.map(p => -fieldVariance(rgba, width, height, p));
+  for (let iteration = 0; iteration < 600; iteration++) {
+    const order = Array.from({ length: 7 }, (_, i) => i).sort((a, b) => values[a] - values[b]);
+    const sorted = order.map(i => simplex[i]), sortedValues = order.map(i => values[i]);
+    simplex.splice(0, 7, ...sorted); values = sortedValues;
+    const center = Array(6).fill(0);
+    for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) center[j] += simplex[i][j] / 6;
+    const trial = (factor: number) => center.map((value, j) => value + factor * (center[j] - simplex[6][j])) as Projection;
+    const reflected = trial(1), reflectedLoss = -fieldVariance(rgba, width, height, reflected);
+    if (reflectedLoss < values[0]) {
+      const expanded = trial(2), expandedLoss = -fieldVariance(rgba, width, height, expanded);
+      simplex[6] = expandedLoss < reflectedLoss ? expanded : reflected;
+      values[6] = Math.min(expandedLoss, reflectedLoss);
+    } else if (reflectedLoss < values[5]) {
+      simplex[6] = reflected; values[6] = reflectedLoss;
+    } else {
+      const contracted = trial(reflectedLoss < values[6] ? .5 : -.5);
+      const contractedLoss = -fieldVariance(rgba, width, height, contracted);
+      if (contractedLoss < Math.min(reflectedLoss, values[6])) {
+        simplex[6] = contracted; values[6] = contractedLoss;
+      } else {
+        for (let i = 1; i < 7; i++) {
+          simplex[i] = simplex[0].map((value, j) => (value + simplex[i][j]) / 2) as Projection;
+          values[i] = -fieldVariance(rgba, width, height, simplex[i]);
+        }
+      }
+    }
+  }
+  return simplex[values.indexOf(Math.min(...values))];
+}
+
 function sample(rgba: ArrayLike<number>, width: number, height: number, a: Waypoint, b: Waypoint, q: number, offsetX: number, offsetY: number): string {
   const dx = b.x - a.x, dy = b.y - a.y, chord = Math.hypot(dx, dy);
   const cos = dx / chord, sin = dy / chord;
@@ -245,12 +307,13 @@ export function decodePolarFrame(rgba: ArrayLike<number>, width: number, height:
   const offsets = [[0, 0], [0, .5], [0, -.5], [-.5, 0], [.5, 0], [-.5, -.5], [.5, .5], [-.5, .5], [.5, -.5]];
   for (const threshold of [185, 170]) {
   const dots = markerDots(rgba, width, height, threshold);
-  const waypoints = waypointCandidates(dots.slice(0, 96));
+  const waypoints = waypointCandidates(dots);
   const pairs: [Waypoint, Waypoint][] = [];
   for (let i = 0; i < waypoints.length; i++) for (let j = i + 1; j < waypoints.length; j++) {
     const a = waypoints[i], b = waypoints[j], chord = Math.hypot(a.x - b.x, a.y - b.y);
     const spacingRatio = chord / ((a.spacing + b.spacing) / 2);
-    if (chord >= 90 && chord <= Math.max(width, height) * .9 && spacingRatio >= 32 && spacingRatio <= 78 && waypointGeometry(a, b)) pairs.push([a, b]);
+    if (chord >= 90 && chord <= Math.max(width, height) * .9 && spacingRatio >= 32 && spacingRatio <= 78 && waypointGeometry(a, b) &&
+      (projectionInside(initialProjection(a, b), width, height) || projectionInside(initialProjection(b, a), width, height))) pairs.push([a, b]);
   }
   pairs.sort((a, b) => ringSupport(b[0], b[1], dots) - ringSupport(a[0], a[1], dots));
   for (const [a, b] of pairs.slice(0, 3)) for (const [left, right] of [[a, b], [b, a]]) {
@@ -271,6 +334,17 @@ export function decodePolarFrame(rgba: ArrayLike<number>, width: number, height:
             return { payload, waypoints: [{ x: left.x, y: left.y }, { x: right.x, y: right.y }], symbolSize: fitted[2] };
           } catch { /* Try the next subpixel alignment. */ }
         }
+      }
+    }
+    if (projectionInside(fitted, width, height)) {
+      const refined = refineProjection(rgba, width, height, fitted);
+      for (let ai = -4; ai <= 4; ai++) for (let xi = -2; xi <= 2; xi++) for (let yi = -2; yi <= 2; yi++) {
+        const adjusted = [...refined] as Projection;
+        adjusted[0] += xi * .5; adjusted[1] += yi * .5; adjusted[4] += ai * .001;
+        try {
+          const payload = sampleProjection(rgba, width, height, adjusted);
+          return { payload, waypoints: [{ x: left.x, y: left.y }, { x: right.x, y: right.y }], symbolSize: fitted[2] };
+        } catch { /* Try the next refined alignment. */ }
       }
     }
   }
